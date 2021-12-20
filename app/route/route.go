@@ -110,6 +110,27 @@ func routes() *httprouter.Router {
 		New(acl.DisallowAnon).
 		ThenFunc(pprofhandler.Handler)))
 
+	// Chat
+	r.GET("/chat", hr.Handler(alice.
+		New(acl.DisallowAnon).
+		ThenFunc(controller.ChatGET)))
+
+	r.GET("/chat/join", hr.Handler(alice.
+		New(acl.DisallowAnon).
+		ThenFunc(controller.ChatJoinGET)))
+
+	r.GET("/chat/update", hr.Handler(alice.
+		New(acl.DisallowAnon).
+		ThenFunc(controller.ChatUpdateGET)))
+
+	r.POST("/chat/send", hr.Handler(alice.
+		New(acl.DisallowAnon).
+		ThenFunc(controller.ChatSendPOST)))
+
+	r.GET("/chat/close", hr.Handler(alice.
+		New(acl.DisallowAnon).
+		ThenFunc(controller.ChatCloseGET)))
+
 	return r
 }
 
@@ -122,7 +143,7 @@ func middleware(h http.Handler) http.Handler {
 	cs := csrfbanana.New(h, session.Store, session.Name)
 	cs.FailureHandler(http.HandlerFunc(controller.InvalidToken))
 	cs.ClearAfterUsage(true)
-	cs.ExcludeRegexPaths([]string{"/static(.*)"})
+	cs.ExcludeRegexPaths([]string{"/static(.*)", "/chat"})
 	csrfbanana.TokenLength = 32
 	csrfbanana.TokenName = "token"
 	csrfbanana.SingleToken = false

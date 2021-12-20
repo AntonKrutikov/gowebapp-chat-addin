@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/josephspurrier/gowebapp/app/route"
+	"github.com/josephspurrier/gowebapp/app/shared/chat"
 	"github.com/josephspurrier/gowebapp/app/shared/database"
 	"github.com/josephspurrier/gowebapp/app/shared/email"
 	"github.com/josephspurrier/gowebapp/app/shared/jsonconfig"
@@ -46,6 +47,9 @@ func main() {
 		plugin.NoEscape(),
 		plugin.PrettyTime(),
 		recaptcha.Plugin())
+
+	// Chat
+	chat.Init()
 
 	// Start the listener
 	server.Run(route.LoadHTTP(), route.LoadHTTPS(), config.Server)
