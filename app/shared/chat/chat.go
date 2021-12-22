@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -10,7 +11,7 @@ import (
 
 var nc *nats.Conn
 
-const ROOM_PREFIX = "room."
+const HEART_BEAT_TIMEOUT = 60 * time.Second
 
 func Init() {
 	var err error
@@ -20,80 +21,68 @@ func Init() {
 	}
 }
 
-var rooms = []string{
-	ROOM_PREFIX + "default",
-	ROOM_PREFIX + "marvel",
-	ROOM_PREFIX + "dc",
+var DefaultRooms = []*Room{
+	GetRoom("default"),
+	GetRoom("marvel"),
+	GetRoom("dc"),
 }
 
 func ProcessMessage(msg *Message, session *Session) {
 	switch msg.Type {
 	case "rooms":
-		ResponseRooms(msg.From)
+		response := MessageDefaultRooms(session)
+		body, _ := json.Marshal(&response)
+		nc.Publish(response.To.ID, body)
 	case "room.join":
 		if !ValidateRoomName(msg.Body) {
 			break
 		}
 		room := GetRoom(msg.Body)
 		JoinRoom(room, session, true)
-		ResponceRoomUsers(msg.From, room)
 	case "room.leave":
 		if !ValidateRoomName(msg.Body) {
 			break
 		}
 		room := GetRoom(msg.Body)
 		room.Leave(session, true)
-	case "message":
+	case "room.users":
+		if !ValidateRoomName(msg.Body) {
+			break
+		}
+		room := GetRoom(msg.Body)
+		body, _ := json.Marshal(MessageRoomUsers(session, room))
+		nc.Publish(session.ID, body)
+	case "room.message":
+		//TODO: validation
 		msg.Timestamp = time.Now()
 		body, _ := json.Marshal(msg)
-		nc.Publish(msg.To, body)
+		nc.Publish(msg.To.Name, body)
 	case "private":
-		//TODO: better algorithm
-		roomName := "private." + RandomString(32)
+		//TODO: check users exists
+		//TODO: check to disallow overs join by room name
+		users := []string{msg.From.ID, msg.To.ID}
+		sort.Strings(users)
+		roomName := users[0] + ":" + users[1]
 		room := GetRoom(roomName)
 		room.Type = "private"
-		JoinRoom(room, session, false) // self join
 
-		message := Message{
-			Timestamp: time.Now(),
-			To:        UserStore.Map[msg.To].Name,
-			From:      session.User.Name,
-			Type:      "private",
-			Body:      roomName,
-		}
-		body, _ := json.Marshal(message)
+		JoinRoom(room, session, false)
+		user := GetUser(msg.To.ID, msg.To.Name)
+		m := MessagePrivateInvite(session, room, user)
+		m.Type = "private.created"
+		body, _ := json.Marshal(m)
 		nc.Publish(session.ID, body)
+
+		// For callee join all sessions to room
 		UserStore.Mu.Lock()
-		for _, s := range UserStore.Map[msg.To].Sessions {
+		for _, s := range UserStore.Map[msg.To.ID].Sessions {
 			JoinRoom(room, s, false)
+			m := MessagePrivateInvite(s, room, session.User)
+			m.Type = "private.invite"
+			body, _ := json.Marshal(m)
 			nc.Publish(s.ID, body)
 		}
 		UserStore.Mu.Unlock()
 
 	}
-}
-
-func ResponseRooms(to string) error {
-	mbody, _ := json.Marshal(rooms)
-	msg := Message{
-		Timestamp: time.Now(),
-		To:        to,
-		Type:      "rooms",
-		Body:      string(mbody),
-	}
-	body, _ := json.Marshal(msg)
-	return nc.Publish(to, body)
-}
-
-func ResponceRoomUsers(to string, room *Room) error {
-	mbody, _ := json.Marshal(room.GetUsers())
-	msg := Message{
-		Timestamp: time.Now(),
-		To:        to,
-		From:      room.Name,
-		Type:      "room.users",
-		Body:      string(mbody),
-	}
-	body, _ := json.Marshal(msg)
-	return nc.Publish(to, body)
 }

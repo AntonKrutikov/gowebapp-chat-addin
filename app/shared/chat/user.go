@@ -1,7 +1,10 @@
 package chat
 
 import (
+	"errors"
+	"fmt"
 	"sync"
+	"time"
 )
 
 type User struct {
@@ -36,29 +39,61 @@ func GetUser(id string, name string) *User {
 	return UserStore.Map[id]
 }
 
-func (u *User) GetSession(id string) *Session {
+func (u *User) NewSession() *Session {
+	id := u.ID + ":" + RandomString(32)
+
+	session := NewSession(id, u)
+
+	u.SessionsMu.Lock()
+	u.Sessions[id] = session
+	fmt.Println(len(u.Sessions))
+	u.SessionsMu.Unlock()
+
+	SessionStore.Mu.Lock()
+	SessionStore.Map[id] = session
+	// Create self subscription for this session and this user too
+	if session.Subscriptions[id] == nil {
+		session.Subscribe(id)
+		session.Subscribe(u.ID)
+	}
+	SessionStore.Mu.Unlock()
+
+	// HearBeat. Need to reset timer in GetSession
+	session.TimeToDie = time.AfterFunc(HEART_BEAT_TIMEOUT, func() { u.DeleteSession(session) })
+
+	return session
+}
+
+func (u *User) GetSession(id string) (*Session, error) {
 	SessionStore.Mu.Lock()
 	defer SessionStore.Mu.Unlock()
 
-	if SessionStore.Map[id] == nil {
-		SessionStore.Map[id] = NewSession(id, u)
+	session := SessionStore.Map[id]
+
+	if session == nil {
+		return session, errors.New("Session not found")
 	}
+
+	// HeartBeat.
+	// If session will be not touched while timeout duration then it will be destroyed and next attempt to access it must return error (404 in controller for example)
+	session.TimeToDie.Reset(HEART_BEAT_TIMEOUT)
+
+	return session, nil
+}
+
+func (u *User) DeleteSession(s *Session) {
+	s.LeaveAllRooms()
+	s.UnsubscribeAll()
+
+	SessionStore.Mu.Lock()
+	delete(SessionStore.Map, s.ID)
+	SessionStore.Mu.Unlock()
 
 	u.SessionsMu.Lock()
-	if u.Sessions[id] == nil {
-		u.Sessions[id] = SessionStore.Map[id]
-	}
+	delete(u.Sessions, s.ID)
 	u.SessionsMu.Unlock()
 
-	// Create self subscription by default to recieve direct messages and info messages
-	if SessionStore.Map[id].Subscriptions[id] == nil {
-		SessionStore.Map[id].Subscribe(id)
-	}
+	s.Closed <- true
 
-	// Subscribe for message by client ID to for private
-	if SessionStore.Map[id].Subscriptions[u.ID] == nil {
-		SessionStore.Map[id].Subscribe(u.ID)
-	}
-
-	return SessionStore.Map[id]
+	s = nil
 }

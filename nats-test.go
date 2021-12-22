@@ -10,11 +10,16 @@ import (
 )
 
 type Message struct {
-	Timestamp time.Time `json:"timestamp"`
-	Type      string    `json:"type"`
-	Body      string    `json:"body"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
+	Timestamp time.Time   `json:"timestamp"`
+	Type      string      `json:"type"`
+	Body      string      `json:"body"`
+	From      MessageUser `json:"from"`
+	To        MessageUser `json:"to"`
+}
+
+type MessageUser struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +
@@ -40,7 +45,7 @@ func main() {
 	nc, err := nats.Connect(nats.DefaultURL)
 	fmt.Println(err)
 
-	chats := []string{"room.default", "room.dc", "room.marvel"}
+	chats := []string{"default", "dc", "marvel"}
 	users := []string{"Batman", "Capitan America", "Hulk", "Iron Man", "Wonder Woman"}
 
 	// Simple Publisher
@@ -50,9 +55,13 @@ func main() {
 		msg := Message{
 			Body:      fmt.Sprintf("Hi it's message №%d\n%s", i, RandomString(40)),
 			Timestamp: time.Now(),
-			To:        room,
-			Type:      "message",
-			From:      users[rand.Intn(4)],
+			To: MessageUser{
+				Name: chats[rand.Intn(2)],
+			},
+			Type: "room.message",
+			From: MessageUser{
+				Name: users[rand.Intn(4)],
+			},
 		}
 		body, _ := json.Marshal(&msg)
 		err = nc.Publish(room, body)

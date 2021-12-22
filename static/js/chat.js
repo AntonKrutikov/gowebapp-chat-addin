@@ -1,465 +1,643 @@
-(async () => {
+const UPDATE_POLLING_TIMEOUT = 100 // 0.1 sec (not bad to make smaller)
+const HEARTBEAT_TIMEOUT = 30 * 1000 // must be lower then server timeout
+const RECONNECT_ATTEMPT_TIMEOUT = 5 * 1000
+const MAX_RECONNECT_ATTEMPTS = 3
 
-    const HEARTBEAT_TIMEOUT = 30 * 1000
+class Chat {
+    user; // user info
+    rooms = []; // public rooms (default)
+    constructor() {
+        this.api = new ChatApi()
+        this.gui = new ChatGUI()
 
-    const MAX_MESSAGES_IN_TAB = 50
-
-    const ROOM_COLORS = ['#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#E57373']
-
-    const USER_COLORS = ['#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#E57373']
-
-    let user_colors_bind = {}
-
-    let User = {
-        id: null,
-        name: null,
-        rooms: [],
-        currentRoom: null,
-        session: null
+        this.gui.tab.USE_COLORS = true
     }
+    async init() {
+        this.user = await this.api.join()
+        this.api.update(this.user.session)
 
-    let Rooms = []
+        this.gui.init()
 
-    // Obtain id and name of client from sever session before start
-    async function ChatRegister() {
-        let response = await fetch('/chat/join')
-        let client = await response.json()
-        if (client) {
-            User.id = client.id
-            User.name = client.name
-            // Reuse channel id obtained on first time page access
-            if (sessionStorage.getItem('session') === null) {
-                User.session = client.session
-                sessionStorage.setItem('session', client.session)
-            } else {
-                User.session = sessionStorage.getItem('session')
+        this.api.ondisconnected = (status) => {
+            // If no events from server side and server close network connection (not session)
+            // Try to reconnect with same session
+            clearTimeout(this.api.heartbeat_timeout)
+            this.api.reconnect_attempts++
+            if (this.api.reconnect_attempts <= MAX_RECONNECT_ATTEMPTS) {
+                if (status === undefined) {
+                    setTimeout(() => this.api.update(this.user.session), RECONNECT_ATTEMPT_TIMEOUT)
+                }
             }
-            console.log(User)
+        }
+
+        this.api.onRooms = (m) => {
+            let rooms = m.body
+            rooms.forEach(room => this.gui.rooms.add(room))
+        }
+
+        this.api.onRoomMessage = (m) => {
+            let room = m.to
+            this.gui.tab.chat.add_message(room, m)
+        }
+
+        this.gui.onRoomListRowClick = (room) => {
+            this.api.joinRoom(room) //TODO: not send if already joined on client
+            this.gui.tab.add(room)
+            this.api.roomUsers(room)
+
+        }
+
+        this.api.onRoomJoin = (m) => {
+            let room = m.body
+            if (m.from.id == this.user.id) {
+                // user self join resonse
+                let already = this.user.rooms.find(r => r.name == room.name)
+                if (already === undefined) {
+                    this.user.rooms.push(room)
+                }
+            }
+            this.gui.tab.chat.add_user(room, m.from)
+        }
+
+        this.api.onRoomLeave = (m) => {
+            let room = m.body
+            this.gui.tab.chat.remove_user(room, m.from)
+            if (room.type == 'private') {
+                this.gui.tab.chat.add_system_message(room, `${m.from.name} leave`)
+            }
+        }
+
+        this.api.onRoomUsers = (m) => {
+            let users = m.body
+            this.gui.tab.chat.refresh_users(m.from, users)
+        }
+
+        this.gui.onRoomTabClosed = (room) => {
+            this.api.leaveRoom(room)
+        }
+
+        this.gui.onSendText = (room, text) => {
+            this.api.sendText(room, text)
+        }
+
+        this.gui.onRequestPrivate = (user) => {
+            this.gui.tab.add(user)
+            this.api.requestPrivate(user)
+        }
+
+        this.api.onPrivateInvite = (m) => {
+            this.gui.tab.add(m.from, false)
+            this.gui.tab.header.update_room_name(m.from, m.body)
+            this.gui.tab.chat.update_room_name(m.from, m.body)
+        }
+
+        this.api.onPrivateCreated = (m) => {
+            this.gui.tab.header.update_room_name(m.from, m.body)
+            this.gui.tab.chat.update_room_name(m.from, m.body)
+        }
+
+        this.api.getRooms()
+    }
+}
+
+class ChatApi {
+    endpoint = {
+        join: '/chat/join',
+        update: '/chat/update',
+        send: '/chat/send',
+        close: '/chat/close'
+    };
+    session;
+    status = {
+        disconnected: 599 // 599 http code when server kill session
+    }
+    timeout; // store setTimeout result
+    abort; // store AbortController
+    reconnect_attempts = 0;
+    heartbeat_timeout;
+
+    ondisconnected; // callback
+    onmessages; // callback, message array as param
+
+    onRooms; // public room list
+    onRoomJoin; // new user join active room
+    onRoomLeave; // user left room
+    onRoomUsers; // all users in room
+    onRoomMessage; //
+    onPrivateInvite;
+    onPrivateCreated;
+    onPrivateMessage;
+
+
+    async join() {
+        try {
+            let response = await fetch(this.endpoint.join)
+            let user_response = await response.json()
+            let user = new User(
+                user_response.id,
+                user_response.name,
+                user_response.session
+            )
+
+            this.session = user_response.session
+
+            // register unload call
+            // send request to /close and no wait response
+            window.addEventListener('beforeunload', () => {
+                if (this.session) {
+                    fetch(`${this.endpoint.close}?session=${this.session}`)
+                }
+            })
+
+            return user
+        } catch (err) {
+            console.log(err)
         }
     }
-    try {
-        await ChatRegister()
-    } catch (err) {
-        console.log(`Can't register in chat app`)
-        throw err
-    }
 
-    // Handle messages by type
-    let MessageHandlers = {
-        rooms(message) {
-            if (message && message.body) {
-                JSON.parse(message.body).forEach(r => {
-                    Chat.addRoom(r)
-                    if (!Rooms[r]) Rooms[r] = []
-                })
+    async update() {
+        if (this.timeout) clearTimeout(this.timeout)
+        this.abort = new AbortController()
+
+        try {
+            let response = await fetch(`${this.endpoint.update}?session=${this.session}`)
+
+            if (response.status == 200) {
+                this.reconnect_attempts = 0
+                this.heartbeat()
             }
-        },
-        roomUsers(message) {
-            users = JSON.parse(message.body)
-            room = message.from
 
-            if (!Array.isArray(users)) {
-                console.log('Bad users response format')
+            if (response.status != 200 && this.ondisconnected) {
+                this.ondisconnected(response.status)
                 return
             }
 
-            if (Rooms[room]) {
-                Rooms[room] = []
-                users.forEach(u => {
-                    if (!Rooms[room].find(user => user.id == u.id)) {
-                        Rooms[room].push(u)
-                    }
-                })
-                Chat.userListRefresh(room, users)
-            }
-        },
-        roomJoin(message) {
-            user = JSON.parse(message.body)
-            from = message.from
-            room = message.to
-            //upate self room if changed
-            if (from == User.session) {
-                User.rooms.push(room)
-            } else {
-                Rooms[room].push(user)
-                Chat.userListAdd(room, user)
-            }
-        },
-        roomLeave(message) {
-            user = JSON.parse(message.body)
-            from = message.from
-            room = message.to
-            if (Rooms[room]) {
-                Rooms[room] = Rooms[room].filter(u => u.id != user.id)
-                if (room.startsWith('room.')) {
-                    Chat.userListRemove(room, user)
-                }
-                // if (room.startsWith('private.')) {
-                //     Chat.addMessage(room, "user leave")
-                // }
-            }
-        },
-        addMessage(message) {
-            m = message.body
-            from = message.from
-            if (!user_colors_bind[from]) user_colors_bind[from] = USER_COLORS.pop()
-            room = message.to
-            Chat.addMessage(room, m, from, user_colors_bind[from])
-        },
-        privateRequest(message) {
-            // if (!Rooms[room].find(user => user.id == u.id)) {
-            //     Rooms[room].push(u)
-            // }
-            if (!Rooms[message.body]) Rooms[message.body] = []
-            if (message.from == User.name) {
-                console.log('your request private')
-                Chat.addTab(message.to, message.body)
-                Chat.tabActivate(message.to)
-            }
-            if (message.to == User.name) {
-                console.log('your request private')
-                Chat.addTab(message.from, message.body)
-                Chat.tabActivate(message.from)
-            }
+            let messages = await response.json()
+            if (this.onmessages) this.onmessages(messages)
+
+            messages.forEach(m => this.process(m))
+
+            this.timeout = setTimeout(() => { this.update() }, UPDATE_POLLING_TIMEOUT)
+        } catch (err) {
+            console.log(err)
+            if (err.name == 'TypeError' && this.ondisconnected) this.ondisconnected()
         }
     }
 
-    let Signaling = {
-        listenTimeout: null,
-        listenAbort: null,
-        handlers: MessageHandlers,
-
-        async listen() {
-            try {
-                if (this.listenTimeout != null) clearTimeout(this.listenTimeout)
-                this.listenAbort = new AbortController()
-
-                let response = await fetch(`/chat/update?session=${User.session}`)
-                let messages = await response.json() //messages must be a JSON array and suite protocol
-
-                if (messages) {
-                    messages.forEach(m => {
-                        console.log(m)
-                        switch (m.type) {
-                            case 'rooms':
-                                this.handlers.rooms(m)
-                                break
-                            case 'room.join':
-                                this.handlers.roomJoin(m)
-                                break
-                            case 'room.leave':
-                                this.handlers.roomLeave(m)
-                                break
-                            case 'room.users':
-                                this.handlers.roomUsers(m)
-                                break
-                            case 'message':
-                                this.handlers.addMessage(m)
-                                break
-                            case 'private':
-                                this.handlers.privateRequest(m)
-                                break
-                        }
-                    })
-                }
-
-                // Restart listener after recieve data
-                this.listenTimeout = setTimeout(() => this.listen(), 500)
-            } catch (err) {
-                console.log(err)
-            }
-
-        },
-        async send(message) {
-            try {
-                message.from = User.session
-                let response = await fetch(`/chat/send?session=${User.session}`, {
+    async send(message) {
+        try {
+            let response = await fetch(
+                `${this.endpoint.send}?session=${this.session}`,
+                {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify(message)
                 })
-                if (response.status == 200 || response.status == 500) {
-                    let result = await response.json()
-                }
-            } catch (err) {
-                console.log(err)
+            let result = await response.json()
+            if (response.status != 200) {
+                console.log('POST error:', result)
             }
-        },
-        // API calls
-        getRooms() {
-            this.send({
-                type: 'rooms',
-                body: null
-            })
-        },
-        joinRoom(room) {
-            let current = User.rooms.find(r => r == room)
-            if (current === undefined) {
-                this.send({
-                    type: 'room.join',
-                    body: room
-                })
-                User.rooms.push(room)
-                Chat.addTab(room)
-                Chat.tabActivate(room)
-            }
-
-     
-
-        },
-        callPrivate(to, name) {
-            this.send({
-                type: 'private',
-                to: to
-            })
-        },
-        leaveRoom(room) {
-
-            this.send({
-                type: 'room.leave',
-                body: room
-            })
-            User.rooms = User.rooms.filter(r => r != room)
-
-        },
-        sendMessage(room, text) {
-            this.send({
-                type: 'message',
-                body: text,
-                to: room
-            })
+        } catch (err) {
+            console.log(err)
         }
-        // heartbeat() {
-        //     setInterval(() => {
-        //         this.send({ type: 'heartbeat' })
-        //     }, HEARTBEAT_TIMEOUT);
-        // }
     }
 
-    Signaling.listen()
-    Signaling.getRooms()
+    heartbeat() {
+        clearTimeout(this.heartbeat_timeout)
+        this.send({
+            type: 'heartbeat'
+        })
+        this.heartbeat_timeout = setTimeout(() => { this.heartbeat() }, HEARTBEAT_TIMEOUT)
+    }
 
-    setTimeout(() => Signaling.joinRoom('room.default'), 100)
+    process(message) {
+        console.log(message)
+        if (message.body) {
+            try {
+                message.body = JSON.parse(message.body)
+            } catch { }
+        }
 
+        switch (message.type) {
+            case 'rooms':
+                if (this.onRooms) this.onRooms(message)
+                break
+            case 'room.join':
+                if (this.onRoomJoin) this.onRoomJoin(message)
+                break
+            case 'room.leave':
+                if (this.onRoomLeave) this.onRoomLeave(message)
+                break
+            case 'room.users':
+                if (this.onRoomUsers) this.onRoomUsers(message)
+                break
+            case 'room.message':
+                if (this.onRoomMessage) this.onRoomMessage(message)
+                break
+            case 'private.created':
+                if (this.onPrivateCreated) this.onPrivateCreated(message)
+                break
+            case 'private.invite':
+                if (this.onPrivateInvite) this.onPrivateInvite(message)
+                break
+        }
+    }
 
+    getRooms() {
+        this.send({
+            type: 'rooms'
+        })
+    }
 
+    joinRoom(room) {
+        this.send({
+            type: 'room.join',
+            body: room.name // TODO: pass object with id and name
+        })
+    }
 
-    /* LAYOUT */
-    let Chat = {
-        container: document.createElement('div'),
-        roomList: document.createElement('div'),
-        // userList: document.createElement('div'),
-        tabsContainer: document.createElement('div'),
-        tabsHeader: document.createElement('div'),
-        tabs: [],
-        init() {
-            this.container.classList.add('chat-container')
-            this.roomList.classList.add('chat-room-list')
-            // this.userList.classList.add('chat-user-list')
-            this.tabsContainer.classList.add('chat-tabs-container')
-            this.tabsHeader.classList.add('chat-tabs-container-header')
-            this.tabsContainer.appendChild(this.tabsHeader)
-            this.container.appendChild(this.roomList)
-            this.container.appendChild(this.tabsContainer)
+    leaveRoom(room) {
+        this.send({
+            type: 'room.leave',
+            body: room.name
+        })
+    }
 
+    roomUsers(room) {
+        this.send({
+            type: 'room.users',
+            body: room.name
+        })
+    }
+
+    sendText(room, text) {
+        let mtype = 'room.message'
+        this.send({
+            to: room,
+            type: mtype,
+            body: text
+        })
+    }
+
+    requestPrivate(user) {
+        this.send({
+            type: 'private',
+            to: user
+        })
+    }
+}
+
+class User {
+    id;
+    name;
+    session;
+    rooms = [];
+
+    constructor(id, name, session) {
+        this.id = id
+        this.name = name
+        this.session = session
+    }
+}
+
+class ChatGUI {
+    onRoomListRowClick;
+    onRoomTabClosed;
+    onSendText;
+    onRequestPrivate;
+
+    container = document.createElement('div')
+    rooms = {
+        ROOM_COLORS: ['#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#E57373'],
+        list: document.createElement('div'),
+        init(root) {
+            this.root = root
+            this.list.classList.add('chat-room-list')
+            return this.list
         },
-        roomListRow(name, type = 'room') {
+        row(room) {
             let row = document.createElement('div')
-            row.classList.add('chat-room-list-row')
             let icon = document.createElement('div')
-            icon.classList.add('chat-room-icon')
-            icon.style.background = ROOM_COLORS.pop() //TODO: temp
-            row.appendChild(icon)
             let text = document.createElement('span')
-            text.innerText = name
+
+            row.classList.add('chat-room-list-row')
+            icon.classList.add('chat-room-icon')
+            icon.style.background = this.ROOM_COLORS.pop() //TODO: temp
+            text.innerText = room.name
+
+            row.appendChild(icon)
             row.appendChild(text)
-            row.dataset.name = name
+            row.dataset.name = room.name
+            row.dataset.id = room.id
             row.addEventListener('click', () => {
-                console.log('whant to join', name)
-                Signaling.joinRoom(name)
+                if (this.root.onRoomListRowClick) this.root.onRoomListRowClick(room)
             })
             return row
         },
-        addRoom(name) {
-            this.roomList.querySelectorAll('.chat-room-list-row').forEach(n => {
-                if (n.dataset.name == name)
+        add(room) {
+            this.list.querySelectorAll('.chat-room-list-row').forEach(n => {
+                if (n.dataset.name == room.name)
                     return
             })
-            row = this.roomListRow(name)
-            this.roomList.appendChild(row)
-        },
-        // activateRoom(name) {
-        //     this.roomList.querySelectorAll('.chat-room-list-row').forEach(n => {
-        //         n.classList.remove('chat-room-list-active')
-        //         if (n.dataset.name == name) {
-        //             n.classList.add('chat-room-list-active')
-        //         }
-        //     })
-        // },
-        userListRow(user) {
-            let row = document.createElement('div')
-            row.classList.add('chat-user-list-row')
-            row.innerText = user.name
-            row.dataset.id = user.id
-            row.addEventListener('click', () => {
-                Signaling.callPrivate(user.id, user.name)
+            this.list.appendChild(this.row(room))
+        }
+    }
 
-            })
-            return row
-        },
-        userListAdd(room, user) {
-            let tab = this.tabs.find(t => t.name == room)
+    // tab represent each chat instance per room
+    tab = {
+        USE_COLORS: false,
+        USER_COLORS: ['#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#E57373'],
+        user_color_map: {},
 
-            tab.users.appendChild(this.userListRow(user))
-        },
-        userListRemove(room, user) {
-            let tab = this.tabs.find(t => t.name == room)
+        container: document.createElement('div'),
+        init(root) {
+            this.root = root
 
-            tab.users.querySelectorAll('.chat-user-list-row').forEach(n => {
-                if (n.dataset.id == user.id) {
-                    tab.users.removeChild(n)
-                }
-            })
+            this.container.classList.add('chat-tabs-container')
+            this.container.appendChild(this.header.container)
+            this.header.init(this)
+            this.chat.init(this)
+            return this.container
         },
-        userListRefresh(room, users) {
-            let tab = this.tabs.find(t => t.name == room)
-            if(tab) {
-            tab.users.replaceChildren()
-            users.sort(u => u.name)
-            users.forEach(u => {
-                tab.users.appendChild(this.userListRow(u))
-            })
+        add(room, activate = true) {
+            this.header.add(room)
+            this.chat.add(room)
+            if (activate === true) this.make_active(room)
+        },
+        close(room) {
+            if (this.root.onRoomTabClosed) this.root.onRoomTabClosed(room)
+            this.header.remove(room)
+            this.chat.remove(room)
+        },
+        make_active(room) {
+            this.header.make_active(room)
+            this.chat.make_active(room)
+        },
+        send(room, text) {
+            if (this.root.onSendText) this.root.onSendText(room, text)
+        },
+        request_private(user) {
+            if (this.root.onRequestPrivate) this.root.onRequestPrivate(user)
+        },
+        header: {
+            container: document.createElement('div'),
+            init(tab) {
+                this.tab = tab
+
+                this.container_class = 'chat-tabs-header-container'
+
+                this.container.classList.add(this.container_class)
+                return this.container
+            },
+            add(room) {
+                if (this.is_opened(room)) return
+
+                let item = document.createElement('div')
+                let text = document.createElement('span')
+                let close = document.createElement('span')
+
+                item.classList.add('chat-tab-header')
+                text.innerText = room.name
+                close.classList.add('chat-tab-header-close')
+                close.innerText = 'x'
+
+                item.dataset.name = room.name
+                item.dataset.id = room.id
+
+                item.appendChild(text)
+                item.appendChild(close)
+
+                this.container.appendChild(item)
+
+                item.addEventListener('click', () => {
+                    this.tab.make_active({ id: item.dataset.id, name: item.dataset.name })
+                })
+
+                close.addEventListener('click', () => {
+                    this.tab.close({ id: item.dataset.id, name: item.dataset.name })
+                })
+            },
+            remove(room) {
+                [...this.container.children].forEach(i => {
+                    if (i.dataset.name == room.name) {
+                        this.container.removeChild(i)
+                    }
+                })
+            },
+            update_room_name(room, updated) {
+                let target = this.container.querySelector(`.chat-tab-header[data-name='${room.name}']`)
+                if (target) target.dataset.name = updated.name
+            },
+            make_active(room) {
+                [...this.container.children].forEach(i => {
+                    i.dataset.active = false
+                    i.classList.remove('chat-tab-header-active')
+                    if (i.dataset.id == room.id) {
+                        i.dataset.active = true
+                        i.classList.add('chat-tab-header-active')
+                    }
+                })
+            },
+            is_opened(room) {
+                let opened = false;
+                [...this.container.children].forEach(i => {
+                    if (i.dataset.id == room.id || i.dataset.name == room.name) {
+                        opened = true
+                    }
+                })
+
+                return opened
+            },
+            is_active(room) {
+                let active = false;
+                [...this.container.children].forEach(i => {
+                    if (i.dataset.name == room.name && i.dataset.active == true) {
+                        active = true
+                    }
+                })
+                return active
             }
         },
-        tabHeaderItem(room, name) {
-            let header = document.createElement('div')
-            header.classList.add('chat-tab-header')
-            let text = document.createElement('span')
-            text.innerText = name ?? room
-            header.appendChild(text)
-            let close = document.createElement('span')
-            close.classList.add('chat-tab-header-close')
-            close.innerText = 'x'
-            header.appendChild(close)
-            header.dataset.name = room
-            header.addEventListener('click', () => {
-                this.tabActivate(room)
-            })
-            close.addEventListener('click', (e) => {
-                e.stopPropagation()
-                Signaling.leaveRoom(room)
+        chat: {
+            container: document.createElement('div'),
+            input: document.createElement('textarea'),
+            inner: document.createElement('div'),
+            users: document.createElement('div'),
+            init(tab) {
+                this.tab = tab
 
-                let tabIndex = this.tabs.findIndex(t => t.room == room)
-                let prevTabIndex = tabIndex - 1
-                this.tabClose(room)
-                if (prevTabIndex >= 0) {
-                    this.tabActivate(this.tabs[prevTabIndex].name)
-                }
+                this.container_class = 'chat-tab-inner-container'
+                this.inner_class = 'chat-chat-inner'
+                this.users_class = 'chat-user-list'
 
-            })
-            return header
-        },
-        tabInnerContainer(room) {
-            let container = document.createElement('div')
-            container.classList.add('chat-tab-inner-container')
-            container.dataset.name = room
-            return container
-        },
-        addTab(room, private) {
-            let tab = this.tabs.find(t => t.name == private ?? room)
-            if (tab === undefined) {
-                let userList = document.createElement('div')
-                userList.classList.add('chat-user-list')
-                let tabInner = this.tabsContainer.appendChild(this.tabInnerContainer(room))
+                this.container.classList.add(this.container_class)
+                this.input.classList.add('chat-input')
+                this.inner.classList.add(this.inner_class)
+                this.users.classList.add(this.users_class)
+            },
+            add(room) {
+                if (this.is_opened(room)) return
 
-                let messageContainer = document.createElement('div')
-                messageContainer.classList.add('chat-tab-message-container')
+                let container = this.container.cloneNode()
+                let inner = this.inner.cloneNode()
+                let input = this.input.cloneNode()
+                let users = this.users.cloneNode()
 
-                let input = document.createElement('textarea')
-                input.classList.add('chat-input')
+                container.dataset.id = room.id
+                container.dataset.name = room.name
+
+                inner.dataset.id = room.id
+                inner.dataset.name = room.name
+
+                input.dataset.id = room.id
+                input.dataset.name = room.name
+
+                users.dataset.id = room.id
+                users.dataset.name = room.name
+
+                container.appendChild(inner)
+                container.appendChild(input)
+                container.appendChild(users)
+
                 input.addEventListener('keypress', (e) => {
                     if (e.key == "Enter") {
                         e.preventDefault()
                         let msg = e.target.value
-                        Signaling.sendMessage(private ?? room, msg)
+                        this.tab.send({ id: container.dataset.id, name: container.dataset.name }, msg)
                         e.target.value = ''
                     }
                 })
 
-                let messages = document.createElement('div')
-                messages.classList.add('chat-messages')
-
-                messageContainer.appendChild(messages)
-                messageContainer.appendChild(input)
-
-
-                tabInner.appendChild(messageContainer)
-                tabInner.appendChild(userList)
-
-                t = {
-                    name: room,
-                    room: private ?? room,
-                    header: this.tabsHeader.appendChild(this.tabHeaderItem(private ?? room, room )),
-                    inner: tabInner,
-                    messages: {
-                        container: messageContainer,
-                        target: messages,
-                        input: input
-                    },
-                    users: userList
-                }
-                this.tabs.push(t)
-                this.tabActivate(room)
-            }
-        },
-        tabActivate(room) {
-            let tab = this.tabs.find(t => t.name == room)
-            this.tabsContainer.querySelectorAll('.chat-tab-inner-container').forEach(n => {
-                n.style.display = 'none'
-            })
-            tab.inner.style.display = 'flex'
-            this.tabsHeader.querySelectorAll('.chat-tab-header').forEach(n => {
-                n.classList.remove('chat-tab-header-active')
-            })
-            tab.header.classList.add('chat-tab-header-active')
-        },
-        tabClose(room) {
-            let tab = this.tabs.find(t => t.room == room)
-            this.tabs = this.tabs.filter(t => t.room != room)
-            this.tabsContainer.removeChild(tab.inner)
-            this.tabsHeader.removeChild(tab.header)
-        },
-        addMessage(room, message, from, color) {
-            let tab = this.tabs.find(t => t.room == room)
-            let m = document.createElement('div')
-            m.classList.add('chat-message')
-            let user = document.createElement('b')
-            user.innerText = from + ': '
-            user.style.color = color
-            m.appendChild(user)
-            let text = document.createElement('span')
-            text.innerText = message
-            m.appendChild(text)
-
-            if (tab) {
-                tab.messages.target.prepend(m)
-                let i = 0
-                tab.messages.target.querySelectorAll('.chat-message').forEach(n => {
-                    i++
-                    if (i > MAX_MESSAGES_IN_TAB) {
-                        tab.messages.target.removeChild(n)
+                container.dataset.active = false
+                container.style.display = 'none'
+                this.tab.container.appendChild(container) //TODO: not good to modify parent
+            },
+            remove(room) {
+                this.tab.container.querySelectorAll('.' + this.container_class).forEach(i => {
+                    if (i.dataset.name == room.name) {
+                        this.tab.container.removeChild(i)
                     }
                 })
+            },
+            add_message(room, message) {
+                let row = document.createElement('div')
+                let from = document.createElement('b')
+                let text = document.createElement('span')
+
+                row.classList.add('chat-message')
+
+                from.innerText = message?.from?.name
+                text.innerText = message?.body
+
+                if (this.tab.USE_COLORS == true) {
+                    let name = message?.from?.name
+                    if (this.tab.user_color_map[name] === undefined) {
+                        this.tab.user_color_map[name] = this.tab.USER_COLORS.pop()
+                    }
+                    from.style.color = this.tab.user_color_map[name]
+                }
+
+                row.appendChild(from)
+                row.appendChild(text)
+
+                let target = this.tab.container.querySelector(`.${this.container_class}[data-name='${room.name}']`)
+                let inner = target?.querySelector('.' + this.inner_class)
+                inner?.prepend(row)
+            },
+            add_system_message(room, text) {
+                let row = document.createElement('div')
+                row.classList.add('chat-system-message')
+
+                row.innerText = text
+
+                let target = this.tab.container.querySelector(`.${this.container_class}[data-name='${room.name}']`)
+                let inner = target?.querySelector('.' + this.inner_class)
+                inner?.prepend(row)
+            },
+            add_user(room, user) {
+                let exists = this.tab.container.querySelector(`.${this.users_class}[data-name='${room.name}'] .chat-user-list-row[data-id='${user.id}']`)
+                if (exists) {
+                    return
+                }
+
+                let row = document.createElement('div')
+                let text = document.createElement('span')
+
+                row.classList.add('chat-user-list-row')
+
+                text.innerText = user.name
+
+                row.dataset.id = user.id
+                row.dataset.name = user.name
+
+                row.addEventListener('click', () => {
+                    this.tab.request_private(user)
+                })
+
+                row.appendChild(text)
+
+                let target = this.tab.container.querySelector(`.${this.users_class}[data-name='${room.name}']`)
+                target.appendChild(row)
+            },
+            remove_user(room, user) {
+                let exists = this.tab.container.querySelector(`.${this.users_class}[data-name='${room.name}'] .chat-user-list-row[data-id='${user.id}']`)
+                if (exists) {
+                    let users = this.tab.container.querySelector(`.${this.users_class}[data-name='${room.name}']`)
+                    users.removeChild(exists)
+                }
+            },
+            refresh_users(room, users) {
+                users.forEach(u => {
+                    this.add_user(room, u)
+                })
+            },
+            make_active(room) {
+                this.tab.container.querySelectorAll('.' + this.container_class).forEach(i => {
+                    i.dataset.active = false
+                    i.style.display = 'none'
+                    if (i.dataset.id == room.id) {
+                        i.dataset.active = true
+                        i.style.display = null
+                    }
+                })
+            },
+            is_opened(room) {
+                let opened = false;
+                this.tab.container.querySelectorAll('.' + this.container_class).forEach(i => {
+                    if (i.dataset.id == room.id || i.dataset.name == room.name) {
+                        opened = true
+                    }
+                })
+                return opened
+            },
+            is_active(room) {
+                let active = false;
+                this.tab.container.querySelectorAll('.' + this.container_class).forEach(i => {
+                    if (i.dataset.name == room.name && i.dataset.active == true) {
+                        active = true
+                    }
+                })
+                return active
+            },
+            update_room_name(room, updated) {
+                let target = this.tab.container.querySelector(`.${this.container_class}[data-name='${room.name}']`)
+                if (target) target.dataset.name = updated.name
             }
-        },
-        show() {
-            document.body.append(this.container)
         }
     }
-    Chat.init()
-    Chat.show()
 
-})()
 
+    init() {
+        this.container.classList.add('chat-container')
+
+        this.container.appendChild(this.rooms.init(this))
+        this.container.appendChild(this.tab.init(this))
+
+        document.body.appendChild(this.container)
+    }
+}
+
+let chat = new Chat()
+chat.init()

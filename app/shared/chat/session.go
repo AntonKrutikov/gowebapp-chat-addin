@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -19,6 +20,8 @@ type Session struct {
 	User            *User
 	Rooms           map[string]*Room
 	RoomsMu         sync.Mutex
+	TimeToDie       *time.Timer
+	Closed          chan bool
 }
 
 var SessionStore = struct {
@@ -40,6 +43,7 @@ func NewSession(id string, user *User) *Session {
 		User:            user,
 		Rooms:           map[string]*Room{},
 		RoomsMu:         sync.Mutex{},
+		Closed:          make(chan bool, 1),
 	}
 
 	return session
@@ -55,9 +59,20 @@ func ValidateSubscriptionName(id string) bool {
 }
 
 func (s *Session) Subscribe(name string) (*nats.Subscription, error) {
+	// TODO: Validate name
 	if !ValidateSubscriptionName(name) {
 		return nil, errors.New("NATS(chat): Subscription name not valid")
 	}
+
+	// Check if already subscribed on this channel, only 1 subscription per session needed
+	s.SubscriptionMu.Lock()
+	sub := s.Subscriptions[name]
+	s.SubscriptionMu.Unlock()
+	if sub != nil {
+		log.Printf("NATS: session %s already subscribed to %s, returned existed subscription.\n", s.ID, name)
+		return sub, nil
+	}
+
 	messages := make(chan *nats.Msg) //TODO: buffered or not
 
 	// Create NATS subscription
@@ -67,12 +82,6 @@ func (s *Session) Subscribe(name string) (*nats.Subscription, error) {
 		return nil, err
 	}
 
-	s.SubscriptionMu.Lock()
-	defer s.SubscriptionMu.Unlock()
-	if s.Subscriptions[name] == nil {
-		s.Subscriptions[name] = sub
-	} //else already subscribed
-
 	// Start consumer in background
 	go func(s *Session, pending chan *nats.Msg) {
 		for delivery := range pending {
@@ -81,7 +90,6 @@ func (s *Session) Subscribe(name string) (*nats.Subscription, error) {
 			if err != nil {
 				log.Println("NATS(chat): failed to decode message.", err)
 			}
-			log.Println(m)
 			s.BufferMu.Lock()
 			s.Buffer = append(s.Buffer, &m)
 			s.BufferMu.Unlock()
@@ -91,6 +99,10 @@ func (s *Session) Subscribe(name string) (*nats.Subscription, error) {
 			}
 		}
 	}(s, messages)
+
+	s.SubscriptionMu.Lock()
+	s.Subscriptions[name] = sub
+	s.SubscriptionMu.Unlock()
 
 	return sub, nil
 }
@@ -112,7 +124,10 @@ func (s *Session) UnsubscribeAll() {
 	s.SubscriptionMu.Lock()
 	defer s.SubscriptionMu.Unlock()
 	for name, sub := range s.Subscriptions {
-		sub.Unsubscribe()
+		err := sub.Unsubscribe()
+		if err != nil {
+			log.Panicln("NATS(chat): failed to unsubscribe")
+		}
 		delete(s.Subscriptions, name)
 	}
 }

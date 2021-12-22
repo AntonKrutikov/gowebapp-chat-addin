@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/josephspurrier/gowebapp/app/shared/chat"
@@ -38,7 +39,7 @@ func ChatJoinGET(w http.ResponseWriter, r *http.Request) {
 	name := session.Values["first_name"].(string)
 
 	user := chat.GetUser(id, name)
-	chatSession := user.GetSession(chat.RandomString(32))
+	chatSession := user.NewSession()
 
 	response := struct {
 		ID      string `json:"id"`
@@ -74,12 +75,23 @@ func ChatUpdateGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := chat.GetUser(id, name)
-	chatSession := user.GetSession(chatSessionID)
+	chatSession, err := user.GetSession(chatSessionID)
+	if err != nil {
+		body, _ := json.Marshal(chat.MessageSessionNotFound())
+		w.WriteHeader(404)
+		w.Write(body)
+		return
+	}
 
 	select {
+	// Client break request
 	case <-ctx.Done():
-		chatSession.LeaveAllRooms()
-		chatSession.UnsubscribeAll()
+		chatSession.User.DeleteSession((chatSession))
+	// Session not active
+	case <-chatSession.Closed:
+		body, _ := json.Marshal(chat.MessageDisconnected())
+		w.WriteHeader(599)
+		w.Write(body)
 	case <-chatSession.BufferAvailable:
 		chatSession.BufferMu.Lock()
 		body, _ := json.Marshal(chatSession.Buffer)
@@ -111,15 +123,24 @@ func ChatSendPOST(w http.ResponseWriter, r *http.Request) {
 	message := chat.Message{}
 	err := json.NewDecoder(r.Body).Decode(&message)
 	if err != nil {
+		fmt.Println(err)
 		w.WriteHeader(500)
 		w.Write([]byte("unknown message format"))
 		return
 	}
 
-	message.From = chatSessionID
-
 	user := chat.GetUser(id, name)
-	chatSession := user.GetSession(chatSessionID)
+	chatSession, err := user.GetSession(chatSessionID)
+	if err != nil {
+		w.WriteHeader(404)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	message.From = chat.MessageUser{
+		ID:   chatSession.User.ID,
+		Name: chatSession.User.Name,
+	}
 
 	if !chat.ValidateMessage(&message, chatSession) {
 		w.WriteHeader(400)
@@ -149,21 +170,12 @@ func ChatCloseGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := chat.GetUser(id, name)
-	chatSession := user.GetSession(chatSessionID)
+	chatSession, err := user.GetSession(chatSessionID)
+	if err != nil {
+		w.WriteHeader(404)
+		w.Write([]byte(err.Error()))
+	}
 
-	chatSession.UnsubscribeAll()
+	chatSession.User.DeleteSession((chatSession))
 	w.WriteHeader(200)
-}
-
-func ChatTestGET(w http.ResponseWriter, r *http.Request) {
-	// id := r.URL.Query().Get("id")
-	// session := chat.SessionStore[id]
-
-	// // fmt.Println(chat.SessionStore, session)
-
-	// for _, v := range session.Buffer {
-	// 	fmt.Println(string(v.Data))
-	// }
-	// session.Buffer = nil
-	// session.Subscriptions["foo"].Unsubscribe()
 }

@@ -3,10 +3,10 @@ package chat
 import (
 	"encoding/json"
 	"sync"
-	"time"
 )
 
 type Room struct {
+	ID         string              `json:"id"`
 	Name       string              `json:"name"`
 	Users      map[string]*User    `json:"-"`
 	UsersMu    sync.Mutex          `json:"-"`
@@ -29,12 +29,13 @@ func GetRoom(name string) *Room {
 
 	if RoomStore.Map[name] == nil {
 		RoomStore.Map[name] = &Room{
+			ID:         name, // for public rooms - id same as name
 			Name:       name,
 			Users:      map[string]*User{},
 			UsersMu:    sync.Mutex{},
 			Sessions:   map[string]*Session{},
 			SessionsMu: sync.Mutex{},
-			Type:       "room",
+			Type:       "public",
 		}
 	}
 
@@ -56,15 +57,8 @@ func JoinRoom(room *Room, session *Session, notify bool) {
 		room.Users[session.User.ID] = session.User
 
 		if notify {
-			mbody, _ := json.Marshal(session.User)
-			msg := Message{
-				Timestamp: time.Now(),
-				Type:      "room.join",
-				Body:      string(mbody),
-				To:        room.Name,
-				From:      session.ID, //TODO: session or user
-			}
-			body, _ := json.Marshal(msg)
+			response := MessageRoomJoin(session, room)
+			body, _ := json.Marshal(response)
 			nc.Publish(room.Name, body)
 		}
 	}
@@ -98,15 +92,8 @@ func (room *Room) Leave(session *Session, notify bool) {
 	if last {
 		delete(room.Users, user.ID)
 		if notify {
-			mbody, _ := json.Marshal(session.User)
-			msg := Message{
-				Timestamp: time.Now(),
-				Type:      "room.leave",
-				Body:      string(mbody),
-				To:        room.Name,
-				From:      session.ID, //TODO: session or user
-			}
-			body, _ := json.Marshal(msg)
+			response := MessageRoomLeave(session, room)
+			body, _ := json.Marshal(response)
 			nc.Publish(room.Name, body)
 		}
 	}
