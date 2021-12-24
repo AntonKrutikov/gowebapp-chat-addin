@@ -36,7 +36,7 @@ func ChatJoinGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := session.Values["id"].(string)
-	name := session.Values["first_name"].(string)
+	name := session.Values["username"].(string)
 
 	user := chat.GetUser(id, name)
 	chatSession := user.NewSession()
@@ -67,7 +67,7 @@ func ChatUpdateGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := session.Values["id"].(string)
-	name := session.Values["first_name"].(string)
+	name := session.Values["username"].(string)
 	chatSessionID := r.URL.Query().Get("session")
 	if chatSessionID == "" || !chat.ValidateSessionID(chatSessionID) {
 		w.WriteHeader(401)
@@ -113,7 +113,7 @@ func ChatSendPOST(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := session.Values["id"].(string)
-	name := session.Values["first_name"].(string)
+	name := session.Values["username"].(string)
 	chatSessionID := r.URL.Query().Get("session")
 	if chatSessionID == "" || !chat.ValidateSessionID(chatSessionID) {
 		w.WriteHeader(401)
@@ -162,7 +162,7 @@ func ChatCloseGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := session.Values["id"].(string)
-	name := session.Values["first_name"].(string)
+	name := session.Values["username"].(string)
 	chatSessionID := r.URL.Query().Get("session")
 	if chatSessionID == "" || !chat.ValidateSessionID(chatSessionID) {
 		w.WriteHeader(401)

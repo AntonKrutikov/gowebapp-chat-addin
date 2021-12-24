@@ -8,10 +8,12 @@ import (
 )
 
 type User struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	Sessions   map[string]*Session `json:"-"`
-	SessionsMu sync.Mutex          `json:"-"`
+	ID                   string              `json:"id"`
+	Name                 string              `json:"name"`
+	Sessions             map[string]*Session `json:"-"`
+	SessionsMu           sync.Mutex          `json:"-"`
+	FixedWindowCounter   int                 `json:"-"`
+	FixedWindowCounterMu sync.Mutex          `json:"-"`
 }
 
 var UserStore = struct {
@@ -28,11 +30,22 @@ func GetUser(id string, name string) *User {
 
 	if UserStore.Map[id] == nil {
 		user := &User{
-			ID:         id,
-			Name:       name,
-			Sessions:   map[string]*Session{},
-			SessionsMu: sync.Mutex{},
+			ID:                   id,
+			Name:                 name,
+			Sessions:             map[string]*Session{},
+			SessionsMu:           sync.Mutex{},
+			FixedWindowCounter:   0,
+			FixedWindowCounterMu: sync.Mutex{},
 		}
+
+		go func() {
+			ticker := time.NewTicker(FIXED_WINDOW_INTERVAL)
+			for range ticker.C {
+				user.FixedWindowCounterMu.Lock()
+				user.FixedWindowCounter = 0
+				user.FixedWindowCounterMu.Unlock()
+			}
+		}()
 		UserStore.Map[id] = user
 	}
 

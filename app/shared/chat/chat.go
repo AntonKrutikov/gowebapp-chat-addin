@@ -13,6 +13,10 @@ var nc *nats.Conn
 
 const HEART_BEAT_TIMEOUT = 60 * time.Second
 
+// Restrict message count/per interval
+const FIXED_WINDOW_MAX = 20
+const FIXED_WINDOW_INTERVAL = 10 * time.Second
+
 func Init() {
 	var err error
 	nc, err = nats.Connect(nats.DefaultURL)
@@ -54,9 +58,17 @@ func ProcessMessage(msg *Message, session *Session) {
 		nc.Publish(session.ID, body)
 	case "room.message":
 		//TODO: validation
-		msg.Timestamp = time.Now()
-		body, _ := json.Marshal(msg)
-		nc.Publish(msg.To.Name, body)
+		session.User.FixedWindowCounterMu.Lock()
+		if session.User.FixedWindowCounter <= FIXED_WINDOW_MAX {
+			session.User.FixedWindowCounter++
+			msg.Timestamp = time.Now()
+			body, _ := json.Marshal(msg)
+			nc.Publish(msg.To.Name, body)
+		} else {
+			body, _ := json.Marshal(MessageToManyRequests(session, msg.To))
+			nc.Publish(session.ID, body)
+		}
+		session.User.FixedWindowCounterMu.Unlock()
 	case "private":
 		//TODO: check users exists
 		//TODO: check to disallow overs join by room name

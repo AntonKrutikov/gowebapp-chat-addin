@@ -94,6 +94,7 @@ func LoginPOST(w http.ResponseWriter, r *http.Request) {
 			sess.Values["id"] = result.UserID()
 			sess.Values["email"] = email
 			sess.Values["first_name"] = result.FirstName
+			sess.Values["username"] = result.FirstName
 			sess.Save(r, w)
 			http.Redirect(w, r, "/", http.StatusFound)
 			return

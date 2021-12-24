@@ -3,6 +3,10 @@ const HEARTBEAT_TIMEOUT = 30 * 1000 // must be lower then server timeout
 const RECONNECT_ATTEMPT_TIMEOUT = 5 * 1000
 const MAX_RECONNECT_ATTEMPTS = 3
 
+const DEBUG = true //show all messages in console
+
+//const MAX_CHAT_HISTORY_LENGTH = 1000 //Limit length of tab history (not requrired)
+
 class Chat {
     user; // user info
     rooms = []; // public rooms (default)
@@ -96,6 +100,16 @@ class Chat {
             this.gui.tab.chat.update_room_name(m.from, m.body)
         }
 
+        this.gui.onNewRoom = (room) => {
+            this.api.joinRoom(room)
+            this.gui.tab.add(room)
+            this.api.roomUsers(room)
+        }
+
+        this.api.onThrottling = (m) => {
+            this.gui.tab.chat.add_system_message(m.from, m.body)
+        }
+
         this.api.getRooms()
     }
 }
@@ -127,6 +141,7 @@ class ChatApi {
     onPrivateInvite;
     onPrivateCreated;
     onPrivateMessage;
+    onThrottling;
 
 
     async join() {
@@ -213,7 +228,7 @@ class ChatApi {
     }
 
     process(message) {
-        console.log(message)
+        if(DEBUG === true) console.log(message)
         if (message.body) {
             try {
                 message.body = JSON.parse(message.body)
@@ -241,6 +256,9 @@ class ChatApi {
                 break
             case 'private.invite':
                 if (this.onPrivateInvite) this.onPrivateInvite(message)
+                break
+            case 'to_many_requests':
+                if (this.onThrottling) this.onThrottling(message)
                 break
         }
     }
@@ -307,6 +325,7 @@ class ChatGUI {
     onRoomTabClosed;
     onSendText;
     onRequestPrivate;
+    onNewRoom;
 
     container = document.createElement('div')
     rooms = {
@@ -315,6 +334,7 @@ class ChatGUI {
         init(root) {
             this.root = root
             this.list.classList.add('chat-room-list')
+            this.list.appendChild(this.create_area())
             return this.list
         },
         row(room) {
@@ -336,12 +356,60 @@ class ChatGUI {
             })
             return row
         },
-        add(room) {
+        add(room, first = false) {
+            let exists = false
             this.list.querySelectorAll('.chat-room-list-row').forEach(n => {
                 if (n.dataset.name == room.name)
-                    return
+                    exists = true
             })
-            this.list.appendChild(this.row(room))
+            if (exists) return
+
+            let new_room_area = this.list.querySelector('.chat-room-add-container')
+            if (new_room_area && first == true) {
+                new_room_area.after(this.row(room))
+            } else {
+                this.list.appendChild(this.row(room))
+            }
+        },
+        create_area() {
+            let container = document.createElement('div')
+            let inner = document.createElement('div')
+            let label = document.createElement('label')
+            let input = document.createElement('input')
+            let button = document.createElement('button')
+
+            container.classList.add('chat-room-add-container')
+            inner.classList.add('chat-room-add-container-inner')
+            label.classList.add('chat-room-add-container-label')
+            input.classList.add('chat-room-add-input')
+            button.classList.add('chat-room-add-button')
+
+            label.innerText = "Create or Join room"
+            button.innerText = "JOIN"
+
+            inner.appendChild(input)
+            inner.appendChild(button)
+            container.appendChild(label)
+            container.appendChild(inner)
+
+            button.addEventListener('click', () => {
+                let room = input.value
+                this.add({ name: room, id: room }, true)
+                if (this.root.onNewRoom) this.root.onNewRoom({ name: room, id: room })
+                input.value = ''
+            })
+
+            input.addEventListener('keypress', (e) => {
+                if (e.key == "Enter") {
+                    e.preventDefault()
+                    let room = input.value
+                    this.add({ name: room, id: room }, true)
+                    if (this.root.onNewRoom) this.root.onNewRoom({ name: room, id: room })
+                    input.value = ''
+                }
+            })
+
+            return container
         }
     }
 
@@ -400,6 +468,7 @@ class ChatGUI {
 
                 item.classList.add('chat-tab-header')
                 text.innerText = room.name
+                text.classList.add('chat-tab-header-title')
                 close.classList.add('chat-tab-header-close')
                 close.innerText = 'x'
 
@@ -437,6 +506,7 @@ class ChatGUI {
                     if (i.dataset.id == room.id) {
                         i.dataset.active = true
                         i.classList.add('chat-tab-header-active')
+                        this.blink_stop(room)
                     }
                 })
             },
@@ -453,11 +523,19 @@ class ChatGUI {
             is_active(room) {
                 let active = false;
                 [...this.container.children].forEach(i => {
-                    if (i.dataset.name == room.name && i.dataset.active == true) {
+                    if (i.dataset.name == room.name && i.dataset.active == 'true') {
                         active = true
                     }
                 })
                 return active
+            },
+            blink_start(room) {
+                let target = this.container.querySelector(`.chat-tab-header[data-name='${room.name}'] .chat-tab-header-title`)
+                if (target) target.classList.add('blink')
+            },
+            blink_stop(room) {
+                let target = this.container.querySelector(`.chat-tab-header[data-name='${room.name}'] .chat-tab-header-title`)
+                if (target) target.classList.remove('blink')
             }
         },
         chat: {
@@ -539,12 +617,34 @@ class ChatGUI {
                     from.style.color = this.tab.user_color_map[name]
                 }
 
+                // blink if not active tab
+                if (!this.is_active(room)) {
+                    this.tab.header.blink_start(room)
+                }
+
                 row.appendChild(from)
                 row.appendChild(text)
 
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-name='${room.name}']`)
                 let inner = target?.querySelector('.' + this.inner_class)
                 inner?.prepend(row)
+
+                if (typeof MAX_CHAT_HISTORY_LENGTH !== 'undefined' && Number.isInteger(MAX_CHAT_HISTORY_LENGTH)) {
+                    this.delete_older_then(room, MAX_CHAT_HISTORY_LENGTH)
+                }
+            },
+            delete_older_then(room, max) {
+                let target = this.tab.container.querySelector(`.${this.container_class}[data-name='${room.name}']`)
+                let inner = target?.querySelector('.' + this.inner_class)
+                if (inner) {
+                    let i = 0
+                    inner.querySelectorAll('.chat-message, .chat-system-message').forEach(m => {
+                        i++
+                        if (i>MAX_CHAT_HISTORY_LENGTH){
+                            inner.removeChild(m)
+                        }
+                    })
+                }
             },
             add_system_message(room, text) {
                 let row = document.createElement('div')
@@ -555,6 +655,9 @@ class ChatGUI {
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-name='${room.name}']`)
                 let inner = target?.querySelector('.' + this.inner_class)
                 inner?.prepend(row)
+                if (typeof MAX_CHAT_HISTORY_LENGTH !== 'undefined' && Number.isInteger(MAX_CHAT_HISTORY_LENGTH)) {
+                    this.delete_older_then(room, MAX_CHAT_HISTORY_LENGTH)
+                }
             },
             add_user(room, user) {
                 let exists = this.tab.container.querySelector(`.${this.users_class}[data-name='${room.name}'] .chat-user-list-row[data-id='${user.id}']`)
@@ -615,7 +718,7 @@ class ChatGUI {
             is_active(room) {
                 let active = false;
                 this.tab.container.querySelectorAll('.' + this.container_class).forEach(i => {
-                    if (i.dataset.name == room.name && i.dataset.active == true) {
+                    if (i.dataset.name == room.name && i.dataset.active == 'true') {
                         active = true
                     }
                 })

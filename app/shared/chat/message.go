@@ -120,3 +120,16 @@ func MessagePrivateInvite(s *Session, room *Room, calle *User) *Message {
 		},
 	}
 }
+
+func MessageToManyRequests(s *Session, dest MessageUser) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "to_many_requests",
+		Body:      "You are to fast in sending messages",
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: dest,
+	}
+}
