@@ -57,7 +57,9 @@ func ProcessMessage(msg *Message, session *Session) {
 		body, _ := json.Marshal(MessageRoomUsers(session, room))
 		nc.Publish(session.ID, body)
 	case "room.message":
-		//TODO: validation
+		if !ValidateMessage(msg, session) {
+			break
+		}
 		session.User.FixedWindowCounterMu.Lock()
 		if session.User.FixedWindowCounter <= FIXED_WINDOW_MAX {
 			session.User.FixedWindowCounter++
