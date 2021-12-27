@@ -154,6 +154,7 @@ class Chat {
         }
 
         this.api.onNewRoom = (m) => {
+            m.from.type = 'public'
             let index = this.user.wait_room_created.findIndex(r => r.name == m.from.name)
             if (index !== -1) {
                 this.gui.rooms.add(m.from, true)
