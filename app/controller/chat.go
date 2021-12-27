@@ -89,7 +89,8 @@ func ChatUpdateGET(w http.ResponseWriter, r *http.Request) {
 		chatSession.User.DeleteSession((chatSession))
 	// Session not active
 	case <-chatSession.Closed:
-		body, _ := json.Marshal(chat.MessageDisconnected())
+		response := []*chat.Message{chat.MessageDisconnected()}
+		body, _ := json.Marshal(response)
 		w.WriteHeader(599)
 		w.Write(body)
 	case <-chatSession.BufferAvailable:
@@ -137,16 +138,6 @@ func ChatSendPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	message.From = chat.MessageUser{
-		ID:   chatSession.User.ID,
-		Name: chatSession.User.Name,
-	}
-
-	if !chat.ValidateMessage(&message, chatSession) {
-		w.WriteHeader(400)
-		return
-	}
-
 	chat.ProcessMessage(&message, chatSession)
 
 	w.WriteHeader(200)
@@ -174,8 +165,9 @@ func ChatCloseGET(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(404)
 		w.Write([]byte(err.Error()))
+		return
 	}
 
-	chatSession.User.DeleteSession((chatSession))
+	chatSession.User.DeleteSession(chatSession)
 	w.WriteHeader(200)
 }

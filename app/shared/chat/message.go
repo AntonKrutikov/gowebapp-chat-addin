@@ -2,6 +2,8 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -19,6 +21,21 @@ type MessageUser struct {
 }
 
 func ValidateMessage(msg *Message, s *Session) bool {
+	// Truncate message text if limit is set
+	if msg.Type == "room.message" || msg.Type == "private.message" || msg.Type == "private.delivered" {
+		if MAX_TEXT_MESSAGE_LENGTH > 0 {
+			msg.Body = TruncateString(msg.Body, MAX_TEXT_MESSAGE_LENGTH)
+		}
+
+		// Simple bad words replacement
+		for bad, good := range BadWordsDictionary {
+			if good == "" {
+				good = string(bad[0]) + strings.Repeat("*", len(bad)-1)
+			}
+			msg.Body = strings.ReplaceAll(msg.Body, bad, good)
+		}
+	}
+
 	return true
 }
 
@@ -38,11 +55,21 @@ func MessageSessionNotFound() *Message {
 	}
 }
 
-func MessageDefaultRooms(s *Session) *Message {
-	rooms, _ := json.Marshal(&DefaultRooms)
+func MessageRoomList(s *Session) *Message {
+	list := []*Room{}
+	RoomStore.Mu.Lock()
+	for _, r := range RoomStore.Map {
+		if r.Type == ROOM_PUBLIC {
+			list = append(list, r)
+		}
+	}
+	RoomStore.Mu.Unlock()
+
+	rooms, _ := json.Marshal(list)
+
 	return &Message{
 		Timestamp: time.Now(),
-		Type:      "rooms",
+		Type:      "room.list",
 		Body:      string(rooms),
 		To: MessageUser{
 			ID:   s.ID,
@@ -58,7 +85,7 @@ func MessageRoomJoin(s *Session, room *Room) *Message {
 		Type:      "room.join",
 		Body:      string(body),
 		To: MessageUser{
-			ID:   room.Name,
+			ID:   room.ID,
 			Name: room.Name,
 		},
 		From: MessageUser{
@@ -75,7 +102,7 @@ func MessageRoomLeave(s *Session, room *Room) *Message {
 		Type:      "room.leave",
 		Body:      string(body),
 		To: MessageUser{
-			ID:   room.Name,
+			ID:   room.ID,
 			Name: room.Name,
 		},
 		From: MessageUser{
@@ -98,8 +125,25 @@ func MessageRoomUsers(s *Session, room *Room) *Message {
 			Name: s.User.Name,
 		},
 		From: MessageUser{
-			ID:   room.Name,
+			ID:   room.ID,
 			Name: room.Name,
+		},
+	}
+}
+
+func MessagePrivateCreated(s *Session, room *Room, calle *User) *Message {
+	body, _ := json.Marshal(room)
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "private.created",
+		Body:      string(body),
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: MessageUser{
+			ID:   calle.ID,
+			Name: calle.Name,
 		},
 	}
 }
@@ -108,7 +152,7 @@ func MessagePrivateInvite(s *Session, room *Room, calle *User) *Message {
 	body, _ := json.Marshal(room)
 	return &Message{
 		Timestamp: time.Now(),
-		Type:      "private",
+		Type:      "private.invite",
 		Body:      string(body),
 		To: MessageUser{
 			ID:   s.User.ID,
@@ -131,5 +175,152 @@ func MessageToManyRequests(s *Session, dest MessageUser) *Message {
 			Name: s.User.Name,
 		},
 		From: dest,
+	}
+}
+
+func MessageRoomBadName(s *Session) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.bad_name",
+		Body:      "This room name is not valid or depricated",
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+	}
+}
+
+func MessageRoomFull(s *Session, room *Room) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.full",
+		Body:      "This room is full",
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: MessageUser{
+			ID:   room.ID,
+			Name: room.Name,
+		},
+	}
+}
+
+func MessageUserNotInRoom(s *Session, room *Room) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.not_joined",
+		Body:      "You not join this room",
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: MessageUser{
+			ID:   room.ID,
+			Name: room.Name,
+		},
+	}
+}
+
+func MessageRoomsMaxCount(s *Session) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.max_count",
+		Body:      "Maximum number of rooms exceeded",
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+	}
+}
+
+func MessageRoomNotFound(s *Session) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.not_found",
+		Body:      fmt.Sprintf("Room not found. Join or create first"),
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+	}
+}
+
+func MessageUserNotFound(s *Session, u MessageUser) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "user.not_found",
+		Body:      fmt.Sprintf("User id:%s name:%s not in chat.", u.ID, u.Name),
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+	}
+}
+
+func MessageNewRoomCreated(room *Room) *Message {
+	mbody, _ := json.Marshal(room)
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.created",
+		Body:      string(mbody),
+		From: MessageUser{
+			ID:   room.ID,
+			Name: room.Name,
+		},
+	}
+}
+
+func MessageRoomAlreadyExists(s *Session, room *Room) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.already_exists",
+		Body:      fmt.Sprintf("Room id:%s name:%s already exists. You can join it", room.ID, room.Name),
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: MessageUser{
+			ID:   room.ID,
+			Name: room.Name,
+		},
+	}
+}
+
+func MessageRoomDeleted(room *Room) *Message {
+	mbody, _ := json.Marshal(room)
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.deleted",
+		Body:      string(mbody),
+		From: MessageUser{
+			ID:   room.ID,
+			Name: room.Name,
+		},
+	}
+}
+
+func MessageHearbeat(s *Session) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "heartbeat",
+		Body:      "",
+		To: MessageUser{
+			ID:   s.ID,
+			Name: s.User.Name,
+		},
+	}
+}
+
+func MessagePrivateDelivered(s *Session, body string, callee MessageUser) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "private.delivered",
+		Body:      body,
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: callee,
 	}
 }

@@ -2,17 +2,26 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"sync"
+	"time"
+
+	"github.com/nats-io/nats.go"
 )
 
 type Room struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	Users      map[string]*User    `json:"-"`
-	UsersMu    sync.Mutex          `json:"-"`
-	Sessions   map[string]*Session `json:"-"`
-	SessionsMu sync.Mutex          `json:"-"`
-	Type       string              `json:"type"`
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Users        map[string]*User    `json:"-"`
+	UsersMu      sync.Mutex          `json:"-"`
+	Sessions     map[string]*Session `json:"-"`
+	SessionsMu   sync.Mutex          `json:"-"`
+	Type         string              `json:"type"`
+	MaxUsers     int                 `json:"max_users"`
+	Permanent    bool                `json:"persistence"`
+	LastActivity time.Time           `json:"-"`
 }
 
 var RoomStore = struct {
@@ -23,32 +32,142 @@ var RoomStore = struct {
 	Mu:  sync.Mutex{},
 }
 
-func GetRoom(name string) *Room {
+type RoomSubscriptionError struct{}
+
+func (re *RoomSubscriptionError) Error() string {
+	return "Can't create NATS subscribtion. Possible bad room name."
+}
+
+type RoomAlreadyExistsError struct{}
+
+func (re *RoomAlreadyExistsError) Error() string {
+	return "Room already exists."
+}
+
+// Need to validate room name on creation (on types 'room.join', 'room.users' and 'room.leave')
+func ValidateRoomName(room string) bool {
+	// Max room length
+	if MAX_ROOM_NAME_LENGTH > 0 {
+		runeName := []rune(room)
+		if len(runeName) > MAX_ROOM_NAME_LENGTH {
+			return false
+		}
+	}
+	//Exclude NATS wildcard symbols as '.' and '*'
+	if strings.IndexRune(room, '.') != -1 || strings.IndexRune(room, '*') != -1 {
+		return false
+	}
+	// Exclude system rooms
+	if room == "chat.broadcast" {
+		return false
+	}
+
+	if room == "" {
+		return false
+	}
+
+	return true
+}
+
+func CreateRoom(name string, rtype string) (*Room, error) {
 	RoomStore.Mu.Lock()
 	defer RoomStore.Mu.Unlock()
 
 	if RoomStore.Map[name] == nil {
-		RoomStore.Map[name] = &Room{
-			ID:         name, // for public rooms - id same as name
-			Name:       name,
-			Users:      map[string]*User{},
-			UsersMu:    sync.Mutex{},
-			Sessions:   map[string]*Session{},
-			SessionsMu: sync.Mutex{},
-			Type:       "public",
+		room := &Room{
+			ID:           RandomString(32), // for public rooms - id same as name
+			Name:         name,
+			Users:        map[string]*User{},
+			UsersMu:      sync.Mutex{},
+			Sessions:     map[string]*Session{},
+			SessionsMu:   sync.Mutex{},
+			Type:         rtype,
+			MaxUsers:     MAX_ROOM_USERS,
+			Permanent:    false,
+			LastActivity: time.Now(),
 		}
+
+		// try to create subscription in NATS
+		temp := make(chan *nats.Msg)
+		_, err := nc.ChanSubscribe(room.ID, temp)
+		if err != nil {
+			fmt.Println(err)
+			return RoomStore.Map[name], &RoomSubscriptionError{}
+		}
+
+		if rtype == ROOM_PUBLIC {
+			PublishMessage("chat.broadcast", MessageNewRoomCreated(room))
+		}
+
+		RoomStore.Map[name] = room
+		return room, nil
 	}
 
-	return RoomStore.Map[name]
+	return RoomStore.Map[name], &RoomAlreadyExistsError{}
 }
 
-func JoinRoom(room *Room, session *Session, notify bool) {
+func GetRoom(name string) (*Room, error) {
+	RoomStore.Mu.Lock()
+	defer RoomStore.Mu.Unlock()
+	if room := RoomStore.Map[name]; room != nil {
+		return room, nil
+	}
+	return nil, errors.New("Room not found")
+}
+
+func GetRoomByID(id string) (*Room, error) {
+	RoomStore.Mu.Lock()
+	defer RoomStore.Mu.Unlock()
+	for _, room := range RoomStore.Map {
+		if room.ID == id {
+			return room, nil
+		}
+	}
+	return nil, errors.New("Room not found")
+}
+
+func DeleteRoom(room *Room) {
+	RoomStore.Mu.Lock()
+	if RoomStore.Map[room.Name] != nil {
+		delete(RoomStore.Map, room.Name)
+		room = nil
+	}
+	RoomStore.Mu.Unlock()
+}
+
+// Active public rooms count
+func RoomCount() int {
+	RoomStore.Mu.Lock()
+	defer RoomStore.Mu.Unlock()
+
+	i := 0
+	for _, r := range RoomStore.Map {
+		if r.Type == "public" {
+			i++
+		}
+	}
+	return i
+}
+
+func (room *Room) UserCount() int {
+	room.UsersMu.Lock()
+	defer room.UsersMu.Unlock()
+
+	return len(room.Users)
+}
+
+func JoinRoom(room *Room, session *Session, notify bool) error {
 
 	room.SessionsMu.Lock()
 	if room.Sessions[session.ID] == nil {
+		_, err := session.Subscribe(room.ID)
+		if err != nil {
+			room.SessionsMu.Unlock()
+			return err
+		}
 		room.Sessions[session.ID] = session
-		session.Subscribe(room.Name)
 		session.Rooms[room.Name] = room
+		PublishMessage(session.ID, MessageRoomJoin(session, room))
 	}
 	room.SessionsMu.Unlock()
 
@@ -57,18 +176,17 @@ func JoinRoom(room *Room, session *Session, notify bool) {
 		room.Users[session.User.ID] = session.User
 
 		if notify {
-			response := MessageRoomJoin(session, room)
-			body, _ := json.Marshal(response)
-			nc.Publish(room.Name, body)
+			PublishMessage(room.ID, MessageRoomJoin(session, room))
 		}
 	}
 	room.UsersMu.Unlock()
+	return nil
 }
 
 func (room *Room) Leave(session *Session, notify bool) {
 	room.SessionsMu.Lock()
 	if room.Sessions[session.ID] != nil {
-		session.Unsubscribe(room.Name)
+		session.Unsubscribe(room.ID)
 		delete(room.Sessions, session.ID)
 		session.RoomsMu.Lock()
 		delete(session.Rooms, room.Name)
@@ -89,19 +207,24 @@ func (room *Room) Leave(session *Session, notify bool) {
 		}
 	}
 
-	if last {
+	if last && user != nil {
 		delete(room.Users, user.ID)
 		if notify {
 			response := MessageRoomLeave(session, room)
 			body, _ := json.Marshal(response)
-			nc.Publish(room.Name, body)
+			nc.Publish(room.ID, body)
 		}
 	}
 	room.UsersMu.Unlock()
-}
 
-func ValidateRoomName(room string) bool {
-	return true
+	// If no users in room - free it name by deleting from RoomStore
+	if len(room.Users) == 0 && room.Permanent == false {
+		if room.Type == ROOM_PUBLIC {
+			PublishMessage("chat.broadcast", MessageRoomDeleted(room))
+		}
+		DeleteRoom(room)
+	}
+
 }
 
 func (r *Room) GetUsers() []*User {
@@ -114,4 +237,38 @@ func (r *Room) GetUsers() []*User {
 	}
 
 	return users
+}
+
+func RoomExists(name string) bool {
+	RoomStore.Mu.Lock()
+	defer RoomStore.Mu.Unlock()
+
+	if RoomStore.Map[name] != nil {
+		return true
+	}
+
+	return false
+}
+
+func RoomExistsByID(id string) bool {
+	RoomStore.Mu.Lock()
+	defer RoomStore.Mu.Unlock()
+
+	for _, room := range RoomStore.Map {
+		if room.ID == id {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (r *Room) HasUser(u *User) bool {
+	r.UsersMu.Lock()
+	defer r.UsersMu.Unlock()
+
+	if r.Users[u.ID] != nil {
+		return true
+	}
+	return false
 }

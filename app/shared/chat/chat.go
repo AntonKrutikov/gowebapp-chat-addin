@@ -3,7 +3,6 @@ package chat
 import (
 	"encoding/json"
 	"log"
-	"sort"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -11,92 +10,219 @@ import (
 
 var nc *nats.Conn
 
-const HEART_BEAT_TIMEOUT = 60 * time.Second
+const HEART_BEAT_TIMEOUT = 30 * time.Second
 
 // Restrict message count/per interval
 const FIXED_WINDOW_MAX = 20
 const FIXED_WINDOW_INTERVAL = 10 * time.Second
 
+// Body of message type = 'room.message' will be truncated to this limit
+// 0 - unlimited
+const MAX_TEXT_MESSAGE_LENGTH = 0
+
+// Private rooms named as user1.UserID() + ":" + user2.UserID + ":" + str(10). UserID is 12bytes in hex representation. 64 is enough, 128 more than enough.
+const MAX_ROOM_NAME_LENGTH = 128
+
+// Maximum count of users (not Sessions in single room). After that - new client will recieve 'room.overfull' message when try to join
+// 0 - unlimited
+const MAX_ROOM_USERS = 100
+
+// Maximum number of rooms. If exceeded - clietn will recieve 'rooms.max_count' message when try to join to not exists room
+// 0 - unlimited
+const MAX_ROOM_COUNT = 4
+
+const ROOM_PUBLIC = "public"
+const ROOM_PRIVATE = "private"
+
+// Dictionary of bad words wich will be replaced by map value or **** if no map value
+var BadWordsDictionary = map[string]string{
+	"fuck": "",
+}
+
+var DefaultRooms []*Room
+
 func Init() {
 	var err error
 	nc, err = nats.Connect(nats.DefaultURL)
 	if err != nil {
-		log.Printf("NATS: failed connect, %v\n", err)
+		log.Fatalf("NATS: failed connect, %v\n", err)
 	}
+
+	// Create Default Rooms
+	defaultRoom, _ := CreateRoom("default", ROOM_PUBLIC)
+	marvelRoom, _ := CreateRoom("marvel", ROOM_PUBLIC)
+	dcRoom, _ := CreateRoom("dc", ROOM_PUBLIC)
+
+	defaultRoom.Permanent = true
+	marvelRoom.Permanent = true
+	dcRoom.Permanent = true
+
+	DefaultRooms = []*Room{defaultRoom, marvelRoom, dcRoom}
 }
 
-var DefaultRooms = []*Room{
-	GetRoom("default"),
-	GetRoom("marvel"),
-	GetRoom("dc"),
+func PublishMessage(to string, msg *Message) error {
+	body, _ := json.Marshal(msg)
+	return nc.Publish(to, body)
 }
 
 func ProcessMessage(msg *Message, session *Session) {
 	switch msg.Type {
+	// Response to each heartbeat too, to avoid httphandler timeout to close session
+	case "heartbeat":
+		PublishMessage(session.ID, MessageHearbeat(session))
+	// Return list of default rooms in response to 'rooms'
 	case "rooms":
-		response := MessageDefaultRooms(session)
-		body, _ := json.Marshal(&response)
-		nc.Publish(response.To.ID, body)
+		PublishMessage(session.ID, MessageRoomList(session))
+	// Assign client to existed or new room
+	case "room.create":
+		if !ValidateRoomName(msg.To.Name) {
+			PublishMessage(session.ID, MessageRoomBadName(session))
+			break
+		}
+		// If room limit is set - validate
+		if MAX_ROOM_COUNT > 0 && RoomCount() >= MAX_ROOM_COUNT {
+			PublishMessage(session.ID, MessageRoomsMaxCount(session))
+			break
+		}
+
+		room, err := CreateRoom(msg.To.Name, ROOM_PUBLIC)
+		if err != nil {
+			if _, ok := err.(*RoomSubscriptionError); ok {
+				PublishMessage(session.ID, MessageRoomBadName(session))
+				break
+			}
+			if _, ok := err.(*RoomAlreadyExistsError); ok {
+				PublishMessage(session.ID, MessageRoomAlreadyExists(session, room))
+				break
+			}
+		}
 	case "room.join":
-		if !ValidateRoomName(msg.Body) {
+		if !ValidateRoomName(msg.To.Name) {
+			PublishMessage(session.ID, MessageRoomBadName(session))
 			break
 		}
-		room := GetRoom(msg.Body)
-		JoinRoom(room, session, true)
+
+		room, err := GetRoomByID(msg.To.ID)
+		if err != nil {
+			PublishMessage(session.ID, MessageRoomNotFound(session))
+			break
+		}
+
+		// If user limit per room is set - validate
+		if !room.HasUser(session.User) && room.MaxUsers > 0 && room.UserCount() >= MAX_ROOM_USERS {
+			PublishMessage(session.ID, MessageRoomFull(session, room))
+			break
+		}
+
+		err = JoinRoom(room, session, true)
+		if err != nil {
+			PublishMessage(session.ID, MessageRoomBadName(session))
+			DeleteRoom(room)
+		}
+	// Remome client session from room
 	case "room.leave":
-		if !ValidateRoomName(msg.Body) {
+		if !ValidateRoomName(msg.To.Name) {
+			PublishMessage(session.ID, MessageRoomBadName(session))
 			break
 		}
-		room := GetRoom(msg.Body)
+
+		room, err := GetRoomByID(msg.To.ID)
+		if err != nil {
+			PublishMessage(session.ID, MessageRoomNotFound(session))
+			break
+		}
+
+		if !room.HasUser(session.User) {
+			PublishMessage(session.ID, MessageUserNotInRoom(session, room))
+			break
+		}
 		room.Leave(session, true)
+	// Return list of user in room
 	case "room.users":
-		if !ValidateRoomName(msg.Body) {
+		if !RoomExistsByID(msg.To.ID) {
+			PublishMessage(session.ID, MessageRoomNotFound(session))
 			break
 		}
-		room := GetRoom(msg.Body)
-		body, _ := json.Marshal(MessageRoomUsers(session, room))
-		nc.Publish(session.ID, body)
+
+		room, err := GetRoomByID(msg.To.ID)
+		if err != nil {
+			PublishMessage(session.ID, MessageRoomNotFound(session))
+			break
+		}
+
+		if !room.HasUser(session.User) {
+			PublishMessage(session.ID, MessageUserNotInRoom(session, room))
+			break
+		}
+
+		PublishMessage(session.ID, MessageRoomUsers(session, room))
+	// Process text messages inside room
+	//
 	case "room.message":
+		if !ValidateRoomName(msg.To.Name) {
+			PublishMessage(session.ID, MessageRoomBadName(session))
+			break
+		}
+
+		room, err := GetRoomByID(msg.To.ID)
+		if err != nil {
+			PublishMessage(session.ID, MessageRoomNotFound(session))
+			break
+		}
+
+		if !room.HasUser(session.User) {
+			PublishMessage(session.ID, MessageUserNotInRoom(session, room))
+			break
+		}
+
+		// Force set message from to session data, to prevent message fake
+		msg.From = MessageUser{
+			ID:   session.User.ID,
+			Name: session.User.Name,
+		}
+
+		// Set timestamp on message before route to room
+		msg.Timestamp = time.Now()
+
 		if !ValidateMessage(msg, session) {
 			break
 		}
+
+		// Check user spam to fast
 		session.User.FixedWindowCounterMu.Lock()
 		if session.User.FixedWindowCounter <= FIXED_WINDOW_MAX {
 			session.User.FixedWindowCounter++
-			msg.Timestamp = time.Now()
-			body, _ := json.Marshal(msg)
-			nc.Publish(msg.To.Name, body)
+			PublishMessage(room.ID, msg)
 		} else {
-			body, _ := json.Marshal(MessageToManyRequests(session, msg.To))
-			nc.Publish(session.ID, body)
+			PublishMessage(session.ID, MessageToManyRequests(session, msg.To))
 		}
 		session.User.FixedWindowCounterMu.Unlock()
-	case "private":
-		//TODO: check users exists
-		//TODO: check to disallow overs join by room name
-		users := []string{msg.From.ID, msg.To.ID}
-		sort.Strings(users)
-		roomName := users[0] + ":" + users[1]
-		room := GetRoom(roomName)
-		room.Type = "private"
-
-		JoinRoom(room, session, false)
-		user := GetUser(msg.To.ID, msg.To.Name)
-		m := MessagePrivateInvite(session, room, user)
-		m.Type = "private.created"
-		body, _ := json.Marshal(m)
-		nc.Publish(session.ID, body)
-
-		// For callee join all sessions to room
-		UserStore.Mu.Lock()
-		for _, s := range UserStore.Map[msg.To.ID].Sessions {
-			JoinRoom(room, s, false)
-			m := MessagePrivateInvite(s, room, session.User)
-			m.Type = "private.invite"
-			body, _ := json.Marshal(m)
-			nc.Publish(s.ID, body)
+	case "private.message":
+		if !UserExists(msg.To.ID) {
+			PublishMessage(session.ID, MessageUserNotFound(session, msg.To))
+			break
 		}
-		UserStore.Mu.Unlock()
+		if !ValidateMessage(msg, session) {
+			break
+		}
+		// Force set message from to session data, to prevent message fake
+		msg.From = MessageUser{
+			ID:   session.User.ID,
+			Name: session.User.Name,
+		}
 
+		// Set timestamp on message before route to room
+		msg.Timestamp = time.Now()
+
+		// Check user spam to fast
+		session.User.FixedWindowCounterMu.Lock()
+		if session.User.FixedWindowCounter <= FIXED_WINDOW_MAX {
+			session.User.FixedWindowCounter++
+			PublishMessage(msg.To.ID, msg)
+			PublishMessage(session.User.ID, MessagePrivateDelivered(session, msg.Body, msg.To))
+		} else {
+			PublishMessage(session.ID, MessageToManyRequests(session, msg.To))
+		}
+		session.User.FixedWindowCounterMu.Unlock()
 	}
 }

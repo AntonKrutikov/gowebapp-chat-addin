@@ -52,6 +52,17 @@ func GetUser(id string, name string) *User {
 	return UserStore.Map[id]
 }
 
+func UserExists(id string) bool {
+	UserStore.Mu.Lock()
+	defer UserStore.Mu.Unlock()
+
+	if UserStore.Map[id] != nil {
+		return true
+	}
+
+	return false
+}
+
 func (u *User) NewSession() *Session {
 	id := u.ID + ":" + RandomString(32)
 
@@ -68,6 +79,7 @@ func (u *User) NewSession() *Session {
 	if session.Subscriptions[id] == nil {
 		session.Subscribe(id)
 		session.Subscribe(u.ID)
+		session.Subscribe("chat.broadcast")
 	}
 	SessionStore.Mu.Unlock()
 
@@ -89,6 +101,9 @@ func (u *User) GetSession(id string) (*Session, error) {
 
 	// HeartBeat.
 	// If session will be not touched while timeout duration then it will be destroyed and next attempt to access it must return error (404 in controller for example)
+	if !session.TimeToDie.Stop() {
+		<-session.TimeToDie.C
+	}
 	session.TimeToDie.Reset(HEART_BEAT_TIMEOUT)
 
 	return session, nil
