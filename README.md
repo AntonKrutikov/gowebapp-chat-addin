@@ -79,11 +79,11 @@ Raised on `room.users` message type. Body return all users in room from From par
 
 Raised on `room.message` message type. Basic text message in room from user
 
-## onPrivateCreated
+## onPrivateMessage
 
-Raised on `private.created` message type as response to init private room creation from user
+Raised on `private.mesage` message type as response to init new direct message from other user
 
-## onPrivateInvite
+## onPrivateDelivered
 
-Raised on `private.invite` message type when user invited to new private room
+Raised on `private.delivered` message type to send back self message to private chat after validation
 
