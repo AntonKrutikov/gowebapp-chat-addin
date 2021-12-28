@@ -26,6 +26,7 @@ class Chat {
 
         this.api.ondisconnected = (status) => {
             // Try to reconnect some times
+            this.gui.popup.show('Connection lost. Reconnecting.', false)
             clearTimeout(this.api.heartbeat_timeout)
             this.api.reconnect_attempts++
             if (this.api.reconnect_attempts <= MAX_RECONNECT_ATTEMPTS) {
@@ -34,11 +35,8 @@ class Chat {
                         let user = await this.api.join()
                         this.user.session = user.session
                         this.api.update(this.user.session)
-                        if (this.user.rooms) {
-                            this.user.rooms.forEach(r => {
-                                this.api.joinRoom(r)
-                            })
-                        }
+                        this.api.getRooms()
+                        this.gui.popup.hide()
                     } catch (err) {
                         this.api.ondisconnected()
                     }
@@ -48,8 +46,10 @@ class Chat {
 
         this.api.onRoomList = (m) => {
             let rooms = m.body
+            this.rooms = rooms
             rooms.forEach(room => {
                 this.gui.rooms.add(room)
+                this.gui.tab.modify_id_by_name(room) //used then recoonect
                 if (room.name == DEFAULT_ROOM_NAME) {
                     this.api.joinRoom(room)
                 }
@@ -514,6 +514,12 @@ class ChatGUI {
             row.dataset.type = room.type
             row.dataset.alias = alias
             row.addEventListener('click', () => {
+                let room = {
+                    id: row.dataset.id,
+                    name: row.dataset.name,
+                    type: row.dataset.type,
+                    alias: row.dataset.alias
+                }
                 if (this.root.onRoomListRowClick) this.root.onRoomListRowClick(room)
             })
             return row
@@ -521,8 +527,10 @@ class ChatGUI {
         add(room, first = false, alias) {
             let exists = false
             this.list.querySelectorAll('.chat-room-list-row').forEach(n => {
-                if (n.dataset.name == room.name)
+                if (n.dataset.name == room.name) {
+                    n.dataset.id = room.id //used in reconnect
                     exists = true
+                }
             })
             if (exists) return
 
@@ -647,6 +655,10 @@ class ChatGUI {
             this.header.remove(room)
             this.chat.remove(room)
         },
+        modify_id_by_name(room) {
+            this.header.modify_id_by_name(room)
+            this.chat.modify_id_by_name(room)
+        },
         make_active(room) {
             this.header.make_active(room)
             this.chat.make_active(room)
@@ -713,6 +725,13 @@ class ChatGUI {
                 [...this.container.children].forEach(i => {
                     if (i.dataset.name == room.name) {
                         this.container.removeChild(i)
+                    }
+                })
+            },
+            modify_id_by_name(room) {
+                [...this.container.children].forEach(i => {
+                    if (i.dataset.name == room.name) {
+                        i.dataset.id = room.id
                     }
                 })
             },
@@ -837,6 +856,13 @@ class ChatGUI {
                 this.tab.container.querySelectorAll('.' + this.container_class).forEach(i => {
                     if (i.dataset.name == room.name) {
                         this.tab.container.removeChild(i)
+                    }
+                })
+            },
+            modify_id_by_name(room) {
+                this.tab.container.querySelectorAll('.' + this.container_class).forEach(i => {
+                    if (i.dataset.name == room.name) {
+                        i.dataset.id = room.id
                     }
                 })
             },
@@ -1019,7 +1045,11 @@ class ChatGUI {
             this.container.appendChild(this.inner)
             root.appendChild(this.container)
         },
-        show(msg) {
+        show(msg, close=true) {
+            this.close_button.style.display = null
+            if (close == false) {
+                this.close_button.style.display = 'none'
+            }
             if (msg) {
                 this.message.innerText = msg
             }

@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"log"
+	"regexp"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -35,8 +36,10 @@ const ROOM_PUBLIC = "public"
 const ROOM_PRIVATE = "private"
 
 // Dictionary of bad words wich will be replaced by map value or **** if no map value
-var BadWordsDictionary = map[string]string{
-	"fuck": "",
+var BadWordsDictionary = map[*regexp.Regexp]string{
+	regexp.MustCompile("fu+c+k"):             "f***",
+	regexp.MustCompile(`http://[^\s]+`):      "--link-hide--",
+	regexp.MustCompile(`telegram.me/[^\s]+`): "--telegram-hide--",
 }
 
 var DefaultRooms []*Room

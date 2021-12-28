@@ -3,7 +3,6 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -29,10 +28,7 @@ func ValidateMessage(msg *Message, s *Session) bool {
 
 		// Simple bad words replacement
 		for bad, good := range BadWordsDictionary {
-			if good == "" {
-				good = string(bad[0]) + strings.Repeat("*", len(bad)-1)
-			}
-			msg.Body = strings.ReplaceAll(msg.Body, bad, good)
+			msg.Body = bad.ReplaceAllString(msg.Body, good)
 		}
 	}
 
