@@ -87,10 +87,12 @@ class Chat {
                 if (already === undefined) {
                     this.user.rooms.push(room)
                 }
+                this.gui.tab.add(room)
+
             } else {
                 this.gui.tab.chat.add_system_message(m.to, `${m.from.name} joined`)
             }
-            this.gui.tab.add(room)
+            this.gui.tab.add(room, false)
             this.gui.rooms.enter(room)
             this.api.roomUsers(room)
             this.gui.tab.chat.add_user(room, m.from)
