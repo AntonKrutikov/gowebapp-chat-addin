@@ -9,6 +9,9 @@ const DEBUG = true //show all messages in console
 
 //const MAX_CHAT_HISTORY_LENGTH = 1000 //Limit length of tab history (not requrired)
 
+const TEXTAREA_PLACEHOLDER = 'پیام شما'
+const ADD_ROOM_PLACEHOLDER = 'room name'
+
 class Chat {
     user; // user info
     rooms = []; // public rooms (default)
@@ -586,7 +589,7 @@ class ChatGUI {
 
             add_button.innerText = "+"
             button.innerText = "→"
-            input.placeholder = "room name"
+            input.placeholder = ADD_ROOM_PLACEHOLDER
             input.maxLength = 128
 
             inner.appendChild(input)
@@ -801,7 +804,7 @@ class ChatGUI {
                 this.users.classList.add(this.users_class)
                 this.send_button.classList.add('chat-input-send-button')
 
-                this.textarea.placeholder = 'Enter message'
+                this.textarea.placeholder = TEXTAREA_PLACEHOLDER
             },
             add(room) {
                 if (this.is_opened(room)) return
