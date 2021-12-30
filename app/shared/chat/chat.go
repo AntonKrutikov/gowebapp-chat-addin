@@ -30,7 +30,7 @@ const MAX_ROOM_USERS = 100
 
 // Maximum number of rooms. If exceeded - clietn will recieve 'rooms.max_count' message when try to join to not exists room
 // 0 - unlimited
-const MAX_ROOM_COUNT = 4
+const MAX_ROOM_COUNT = 100
 
 const ROOM_PUBLIC = "public"
 const ROOM_PRIVATE = "private"

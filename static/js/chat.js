@@ -12,6 +12,9 @@ const DEBUG = true //show all messages in console
 const TEXTAREA_PLACEHOLDER = 'پیام شما'
 const ADD_ROOM_PLACEHOLDER = 'room name'
 
+// This colors used one by one fro room colors and users colors if options enabled: this.gui.tab.USE_COLORS and this.gui.rooms.USE_COLORS
+const COLORS = ['#E57373', '#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#FF8F00', '#43A047']
+
 class Chat {
     user; // user info
     rooms = []; // public rooms (default)
@@ -20,6 +23,7 @@ class Chat {
         this.gui = new ChatGUI()
 
         this.gui.tab.USE_COLORS = true
+        this.gui.rooms.USE_COLORS = true
     }
     async init() {
         this.user = await this.api.join()
@@ -190,6 +194,10 @@ class Chat {
             this.gui.popup.show(m.body)
         }
 
+        this.api.onRoomAlreadyExists = (m) => {
+            this.gui.popup.show(m.body)
+        }
+
 
         this.api.getRooms()
     }
@@ -228,6 +236,7 @@ class ChatApi {
     onRoomFull;
     onRoomMaxCount;
     onRoomBadName;
+    onRoomAlreadyExists;
 
 
     async join() {
@@ -376,6 +385,9 @@ class ChatApi {
             case 'room.bad_name':
                 if (this.onRoomBadName) this.onRoomBadName(message)
                 break
+            case 'room.already_exists':
+                if (this.onRoomAlreadyExists) this.onRoomAlreadyExists(message)
+                break
         }
     }
 
@@ -476,7 +488,8 @@ class ChatGUI {
 
     container = document.createElement('div')
     rooms = {
-        ROOM_COLORS: ['#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#E57373'],
+        USE_COLORS: true,
+        last_color_index: 0,
         list: document.createElement('div'),
         init(root) {
             this.root = root
@@ -500,7 +513,14 @@ class ChatGUI {
             last_message_text.classList.add('chat-room-last-message-text')
             indicator.classList.add('chat-room-join-indicator')
 
-            icon.style.background = this.ROOM_COLORS.pop() //TODO: temp
+            if (room.permanent == true) {
+                row.classList.add('chat-room-list-row-permanent')
+            }
+
+            if (this.USE_COLORS) {
+                icon.style.background = COLORS[this.last_color_index]
+                this.last_color_index = this.last_color_index == COLORS.length - 1 ? 0 : this.last_color_index + 1
+            }
             icon.innerText = alias ? alias.slice(1, 2).toUpperCase() : room.name.slice(0, 1).toUpperCase()
             name.innerText = alias ?? room.name
             name.title = alias ?? room.name
@@ -518,6 +538,7 @@ class ChatGUI {
             row.dataset.id = room.id
             row.dataset.type = room.type
             row.dataset.alias = alias
+            row.dataset.permanent = room.permanent
             row.addEventListener('click', () => {
                 let room = {
                     id: row.dataset.id,
@@ -540,8 +561,16 @@ class ChatGUI {
             if (exists) return
 
             let new_room_area = this.list.querySelector('.chat-room-add-container')
-            if (new_room_area && first == true) {
-                new_room_area.after(this.row(room, alias))
+            let permanent = this.list.querySelectorAll('.chat-room-list-row[data-permanent="true"]')
+            let last_permanent = permanent.length > 0 ? permanent[permanent.length - 1] : null
+
+            if (last_permanent && first == true) {
+                let row = this.row(room, alias)
+                row.classList.add('animation_appear')
+                last_permanent.after(row)
+            } else if (new_room_area && first == true) {
+                let row = this.row(room, alias)
+                new_room_area.after(row)
             } else {
                 this.list.appendChild(this.row(room, alias))
             }
@@ -637,7 +666,7 @@ class ChatGUI {
     // tab represent each chat instance per room
     tab = {
         USE_COLORS: false,
-        USER_COLORS: ['#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#E57373'],
+        last_color_index: 0,
         user_color_map: {},
 
         container: document.createElement('div'),
@@ -705,6 +734,7 @@ class ChatGUI {
 
                 item.dataset.name = room.name
                 item.dataset.id = room.id
+                item.dataset.type = room.type
 
                 item.appendChild(menu_icon)
                 item.appendChild(text)
@@ -894,9 +924,10 @@ class ChatGUI {
                 if (this.tab.USE_COLORS == true) {
                     let name = message?.from?.name
                     if (this.tab.user_color_map[name] === undefined) {
-                        this.tab.user_color_map[name] = this.tab.USER_COLORS.pop()
+                        this.tab.user_color_map[name] = COLORS[this.tab.last_color_index]
                     }
                     from.style.color = this.tab.user_color_map[name]
+                    this.tab.last_color_index = this.tab.last_color_index == COLORS.length - 1 ? 0 : this.tab.last_color_index + 1
                 }
 
                 from.addEventListener('click', () => {

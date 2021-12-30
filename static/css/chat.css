@@ -112,6 +112,9 @@
     border-bottom: 1px solid #424242;
     cursor: pointer;
 }
+.chat-room-list-rom-permanent {
+
+}
 .chat-room-icon {
     grid-row-start: 1;
     grid-row-end: 3;
@@ -132,6 +135,14 @@
     white-space: nowrap;
     overflow: hidden;
     color: #EEEEEE;
+}
+.chat-room-list-row[data-type='private'] > span {
+    background: url("/static/assets/user.png");
+    background-repeat: no-repeat;
+    background-size: 1rem;
+    background-position-x: 1rem;
+    background-position-y: 50%;
+    padding-left: 2.5rem;
 }
 .chat-room-last-message {
     grid-row-start: 2;
@@ -211,7 +222,6 @@
     max-width: 20%;
 
 }
-
 .chat-tab-header-menu-icon {
     display: none;
 }
@@ -219,6 +229,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+.chat-tab-header[data-type='private'] .chat-tab-header-title {
+    background: url("/static/assets/user.png");
+    background-repeat: no-repeat;
+    background-size: 1rem;
+    background-position-y: 50%;
+    padding-left: 2rem;
 }
 .chat-tab-header-active {
     background: var(--background-textarea);
@@ -420,6 +437,17 @@
 }
 .blink {
 animation: blink 1s step-start 0s infinite;
+}
+@keyframes opacity {
+    0% {
+        opacity: 0;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+.animation_appear {
+    animation: opacity 0.25s linear 0s;
 }
 
 .chat-popup {

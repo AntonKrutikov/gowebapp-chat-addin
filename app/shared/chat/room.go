@@ -20,7 +20,7 @@ type Room struct {
 	SessionsMu   sync.Mutex          `json:"-"`
 	Type         string              `json:"type"`
 	MaxUsers     int                 `json:"max_users"`
-	Permanent    bool                `json:"persistence"`
+	Permanent    bool                `json:"permanent"`
 	LastActivity time.Time           `json:"-"`
 }
 

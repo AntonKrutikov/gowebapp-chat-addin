@@ -3,6 +3,8 @@ package chat
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -60,6 +62,21 @@ func MessageRoomList(s *Session) *Message {
 		}
 	}
 	RoomStore.Mu.Unlock()
+
+	// Sort by name
+	sort.SliceStable(list, func(i, j int) bool {
+		res := strings.Compare(list[i].Name, list[j].Name)
+		if res == 1 {
+			return true
+		} else {
+			return false
+		}
+	})
+
+	// Second sort for permanent (maybe can combine in one sort, but not expensive at all)
+	sort.SliceStable(list, func(i, j int) bool {
+		return list[i].Permanent
+	})
 
 	rooms, _ := json.Marshal(list)
 
@@ -271,7 +288,7 @@ func MessageRoomAlreadyExists(s *Session, room *Room) *Message {
 	return &Message{
 		Timestamp: time.Now(),
 		Type:      "room.already_exists",
-		Body:      fmt.Sprintf("Room id:%s name:%s already exists. You can join it", room.ID, room.Name),
+		Body:      fmt.Sprintf("Room %s already exists. You can join it", room.Name),
 		To: MessageUser{
 			ID:   s.User.ID,
 			Name: s.User.Name,
