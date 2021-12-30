@@ -712,13 +712,17 @@ class ChatGUI {
 
                 this.container.appendChild(item)
 
-                menu_icon.addEventListener('click', () => {
+                menu_icon.addEventListener('click', (e) => {
+                    e.stopPropagation()
                     this.tab.root.rooms.list.classList.remove('chat-hide')
                     this.tab.container.classList.add('chat-hide')
                 })
 
-                item.addEventListener('click', () => {
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation()
                     this.tab.make_active({ id: item.dataset.id, name: item.dataset.name })
+                    //mobile user list toggle
+                    this.tab.chat.toggle_user_list(room)
                 })
 
                 close.addEventListener('click', (e) => {
@@ -790,6 +794,7 @@ class ChatGUI {
             send_button: document.createElement('div'),
             inner: document.createElement('div'),
             users: document.createElement('div'),
+            users_total: document.createElement('div'),
             init(tab) {
                 this.tab = tab
 
@@ -802,6 +807,8 @@ class ChatGUI {
                 this.textarea.classList.add('chat-input-textarea')
                 this.inner.classList.add(this.inner_class)
                 this.users.classList.add(this.users_class)
+                this.users.classList.add('chat-hide')
+                this.users_total.classList.add('chat-user-list-total')
                 this.send_button.classList.add('chat-input-send-button')
 
                 this.textarea.placeholder = TEXTAREA_PLACEHOLDER
@@ -814,6 +821,7 @@ class ChatGUI {
                 let input = this.input.cloneNode()
                 let textarea = this.textarea.cloneNode()
                 let users = this.users.cloneNode()
+                let users_total = this.users_total.cloneNode()
                 let send_button = this.send_button.cloneNode()
 
                 container.dataset.id = room.id
@@ -836,6 +844,7 @@ class ChatGUI {
                 input.appendChild(send_button)
                 container.appendChild(inner)
                 container.appendChild(input)
+                users.appendChild(users_total)
                 container.appendChild(users)
 
                 textarea.addEventListener('keypress', (e) => {
@@ -974,7 +983,13 @@ class ChatGUI {
                 row.appendChild(text)
 
                 let target = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}']`)
-                if (target) target.appendChild(row)
+                if (target) {
+                    let total = target.querySelector('.chat-user-list-total')
+                    if (total != null) {
+                        total.innerText = total.innerText == '' ? 1 : parseInt(total.innerText) + 1
+                    }
+                    target.appendChild(row)
+                }
             },
             remove_user(room, user) {
                 let exists = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}'] .chat-user-list-row[data-id='${user.id}']`)
@@ -1016,6 +1031,31 @@ class ChatGUI {
                 })
                 return active
             },
+            show_user_list(room) {
+                let target = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}']`)
+                if (target) {
+                    target.classList.remove('chat-hide')
+                    document.addEventListener('click', (e) => {
+                        if (e.target != target) {
+                            this.hide_user_list(room)
+                        }
+                    }, {once: true})
+                }
+            },
+            hide_user_list(room) {
+                let target = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}']`)
+                if (target) target.classList.add('chat-hide')
+            },
+            toggle_user_list(room) {
+                let target = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}']`)
+                if (target) {
+                    if (target.classList.contains('chat-hide')) {
+                        this.show_user_list(room)
+                    } else {
+                        this.hide_user_list(room)
+                    }
+                }
+            },
             update_room_name(room, updated) {
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-id='${room.id}']`)
                 if (target) target.dataset.name = updated.name
@@ -1050,7 +1090,7 @@ class ChatGUI {
             this.container.appendChild(this.inner)
             root.appendChild(this.container)
         },
-        show(msg, close=true) {
+        show(msg, close = true) {
             this.close_button.style.display = null
             if (close == false) {
                 this.close_button.style.display = 'none'
