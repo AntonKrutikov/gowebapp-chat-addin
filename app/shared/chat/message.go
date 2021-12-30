@@ -108,6 +108,30 @@ func MessageRoomJoin(s *Session, room *Room) *Message {
 	}
 }
 
+func MessageRoomJoinWithHistory(s *Session, room *Room, history []*Message) *Message {
+	mbody := struct {
+		Room    *Room      `json:"room"`
+		History []*Message `json:"history"`
+	}{
+		Room:    room,
+		History: history,
+	}
+	body, _ := json.Marshal(mbody)
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "room.join",
+		Body:      string(body),
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+	}
+}
+
 func MessageRoomLeave(s *Session, room *Room) *Message {
 	body, _ := json.Marshal(room)
 	return &Message{

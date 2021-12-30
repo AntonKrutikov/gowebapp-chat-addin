@@ -32,6 +32,9 @@ const MAX_ROOM_USERS = 100
 // 0 - unlimited
 const MAX_ROOM_COUNT = 100
 
+// Maximum number of messages in room history. After that first item from slice will be truncated.
+const MAX_ROOM_HISTORY_MESSAGES = 4
+
 const ROOM_PUBLIC = "public"
 const ROOM_PRIVATE = "private"
 
@@ -196,6 +199,8 @@ func ProcessMessage(msg *Message, session *Session) {
 		if session.User.FixedWindowCounter <= FIXED_WINDOW_MAX {
 			session.User.FixedWindowCounter++
 			PublishMessage(room.ID, msg)
+			// save in history
+			AddToHistory(room, msg)
 		} else {
 			PublishMessage(session.ID, MessageToManyRequests(session, msg.To))
 		}

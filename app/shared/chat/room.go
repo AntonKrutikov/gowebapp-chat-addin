@@ -24,11 +24,25 @@ type Room struct {
 	LastActivity time.Time           `json:"-"`
 }
 
+type RoomHistory struct {
+	History []*Message
+	Mu      sync.Mutex
+}
+
 var RoomStore = struct {
 	Map map[string]*Room
 	Mu  sync.Mutex
 }{
 	Map: map[string]*Room{},
+	Mu:  sync.Mutex{},
+}
+
+// Store room history by room.ID
+var RoomHistoryStore = struct {
+	Map map[string]*RoomHistory
+	Mu  sync.Mutex
+}{
+	Map: map[string]*RoomHistory{},
 	Mu:  sync.Mutex{},
 }
 
@@ -167,7 +181,7 @@ func JoinRoom(room *Room, session *Session, notify bool) error {
 		}
 		room.Sessions[session.ID] = session
 		session.Rooms[room.Name] = room
-		PublishMessage(session.ID, MessageRoomJoin(session, room))
+		PublishMessage(session.ID, MessageRoomJoinWithHistory(session, room, GetRoomHistory(room)))
 	}
 	room.SessionsMu.Unlock()
 
@@ -271,4 +285,37 @@ func (r *Room) HasUser(u *User) bool {
 		return true
 	}
 	return false
+}
+
+func AddToHistory(room *Room, msg *Message) {
+	roomHistory := &RoomHistory{}
+
+	RoomHistoryStore.Mu.Lock()
+	if RoomHistoryStore.Map[room.ID] != nil {
+		roomHistory = RoomHistoryStore.Map[room.ID]
+	} else {
+		RoomHistoryStore.Map[room.ID] = roomHistory
+	}
+	RoomHistoryStore.Mu.Unlock()
+
+	roomHistory.Mu.Lock()
+	if len(roomHistory.History) >= MAX_ROOM_HISTORY_MESSAGES {
+		roomHistory.History = roomHistory.History[1:]
+	}
+	roomHistory.History = append(roomHistory.History, msg)
+	roomHistory.Mu.Unlock()
+}
+
+func GetRoomHistory(room *Room) []*Message {
+	history := []*Message{}
+
+	RoomHistoryStore.Mu.Lock()
+	if roomHistory := RoomHistoryStore.Map[room.ID]; roomHistory != nil {
+		roomHistory.Mu.Lock()
+		history = append(history, roomHistory.History...)
+		roomHistory.Mu.Unlock()
+	}
+	RoomHistoryStore.Mu.Unlock()
+
+	return history
 }

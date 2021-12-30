@@ -68,14 +68,14 @@ class Chat {
             let room = m.to
             if (m.from.id == this.user.id) {
                 this.gui.tab.chat.add_message(room, m, "end")
-                this.gui.tab.chat.scroll_to_bottom(room)
+                this.gui.tab.chat.scroll_to_bottom(room, true) //always if user send self message
             } else {
                 this.gui.tab.chat.add_message(room, m)
+                this.gui.tab.chat.scroll_to_bottom(room) // if user near 100 from bottom
             }
         }
 
         this.gui.onRoomListRowClick = (room) => {
-            console.log(room)
             if (room.type == 'public') {
                 this.api.joinRoom(room)
             } else if (room.type == 'private') {
@@ -87,9 +87,10 @@ class Chat {
         }
 
         this.api.onRoomJoin = (m) => {
-            let room = m.body
-            if (m.from.id == this.user.id) {
-                // user self join resonse
+            // Self join response (with history). Body contain room and history
+            if (m.to.id == this.user.id) {
+                let room = m.body.room
+                let history = m.body.history
                 let already = this.user.rooms.find(r => r.name == room.name)
                 if (already === undefined) {
                     this.user.rooms.push(room)
@@ -100,7 +101,15 @@ class Chat {
                 this.gui.tab.chat.add_user(room, m.from)
                 this.gui.rooms.list.classList.add('chat-hide')
                 this.gui.tab.container.classList.remove('chat-hide')
+                history.forEach(m => {
+                    if (m.from.id == this.user.id) {
+                        this.gui.tab.chat.add_message(room, m, 'flex-end')
+                    } else {
+                        this.gui.tab.chat.add_message(room, m)
+                    }
+                })
             } else {
+                let room = m.body
                 this.gui.tab.chat.add_user(room, m.from)
                 this.gui.tab.chat.add_system_message(m.to, `${m.from.name} joined`)
             }
@@ -228,15 +237,13 @@ class ChatApi {
     onRoomJoin; // new user join active room
     onRoomLeave; // user left room
     onRoomUsers; // all users in room
-    onRoomMessage; //
-    onPrivateInvite;
-    onPrivateCreated;
-    onPrivateMessage;
-    onThrottling;
-    onRoomFull;
-    onRoomMaxCount;
-    onRoomBadName;
-    onRoomAlreadyExists;
+    onRoomMessage; // new message in room
+    onPrivateMessage; //new private message
+    onThrottling; // to fast sending - bad
+    onRoomFull; // no free space - show error, can't join
+    onRoomMaxCount; // can't create more rooms
+    onRoomBadName; // room name depricated
+    onRoomAlreadyExists; // this room already exists
 
 
     async join() {
@@ -361,12 +368,6 @@ class ChatApi {
             case 'room.message':
                 if (this.onRoomMessage) this.onRoomMessage(message)
                 break
-            case 'private.created':
-                if (this.onPrivateCreated) this.onPrivateCreated(message)
-                break
-            case 'private.invite':
-                if (this.onPrivateInvite) this.onPrivateInvite(message)
-                break
             case 'private.message':
                 if (this.onPrivateMessage) this.onPrivateMessage(message)
                 break
@@ -411,7 +412,7 @@ class ChatApi {
     joinRoom(room) {
         this.send({
             type: 'room.join',
-            body: room.name, // TODO: pass object with id and name,
+            body: room.name, // This from first version (server join use 'to' data)
             to: {
                 id: room.id,
                 name: room.name
@@ -577,7 +578,6 @@ class ChatGUI {
         },
         add_last_message(room, from, text) {
             let target = this.list.querySelector(`.chat-room-list-row[data-id='${room.id}']`)
-            console.log(room, target)
             if (target) {
                 let f = target.querySelector('.chat-room-last-message-from')
                 if (f) f.innerText = from
@@ -598,9 +598,14 @@ class ChatGUI {
             }
         },
         leave(room) {
-            let target = this.list.querySelector(`.chat-room-list-row[data-id='${room.id}'] .chat-room-join-indicator`)
+            let target = this.list.querySelector(`.chat-room-list-row[data-id='${room.id}']`)
             if (target) {
-                target.style.display = 'none'
+                let indicator = target.querySelector('.chat-room-join-indicator')
+                if (indicator) indicator.style.display = 'none'
+                let last_from = target.querySelector('.chat-room-last-message-from')
+                if (last_from) last_from.innerText = ''
+                let last_message = target.querySelector('.chat-room-last-message-text')
+                if (last_message) last_message.innerText = ''
             }
         },
         create_area() {
@@ -639,7 +644,6 @@ class ChatGUI {
 
             button.addEventListener('click', () => {
                 let room = input.value
-                // this.add({ name: room, id: room }, true)
                 if (this.root.onCreateRoom) this.root.onCreateRoom({ name: room, id: room })
                 input.value = ''
                 inner.style.display = 'none'
@@ -650,7 +654,6 @@ class ChatGUI {
                 if (e.key == "Enter") {
                     e.preventDefault()
                     let room = input.value
-                    // this.add({ name: room, id: room }, true)
                     if (this.root.onCreateRoom) this.root.onCreateRoom({ name: room, id: room })
                     input.value = ''
                     input.blur()
@@ -942,6 +945,13 @@ class ChatGUI {
                 row.appendChild(from)
                 row.appendChild(text)
 
+                try {
+                    let d = new Date(message?.timestamp)
+                    row.title = d.toLocaleTimeString()
+                } catch {
+
+                }
+
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-id='${room.id}']`)
                 let inner = target?.querySelector('.' + this.inner_class)
                 inner?.prepend(row)
@@ -959,13 +969,16 @@ class ChatGUI {
                     this.tab.root.rooms.add_last_message(tab_room, message?.from?.name, message?.body)
                 }
             },
-            scroll_to_bottom(room) {
+            // Sometimes if user scrolled to bottom - browser treat this as non 0 value, we adding bottom windows 0-100 to accurate scrolling on new messages
+            scroll_to_bottom(room, always = false) {
                 let target = this.tab.container.querySelector(`.${this.inner_class}[data-id='${room.id}']`)
                 if (target) {
-                    target.scrollTo({ top: target.scrollHeight })
+                    if (always == true || Math.abs(target.scrollTop) < 100) {
+                        target.scrollTo({ top: 0, behavior: 'smooth' })
+                    }
                 }
             },
-            delete_older_then(room, max) {
+            delete_older_then(room) {
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-id='${room.id}']`)
                 let inner = target?.querySelector('.' + this.inner_class)
                 if (inner) {
@@ -1070,7 +1083,7 @@ class ChatGUI {
                         if (e.target != target) {
                             this.hide_user_list(room)
                         }
-                    }, {once: true})
+                    }, { once: true })
                 }
             },
             hide_user_list(room) {
@@ -1151,7 +1164,6 @@ class ChatGUI {
         document.body.appendChild(this.container)
 
         this.popup.init(this.container)
-        // this.popup.hide()
     }
 }
 
