@@ -699,6 +699,8 @@ class ChatGUI {
         make_active(room) {
             this.header.make_active(room)
             this.chat.make_active(room)
+            this.root.rooms.list.classList.add('chat-hide') //mobile fix
+            
         },
         send(room, text) {
             if (this.root.onSendText) this.root.onSendText(room, text)
@@ -755,7 +757,10 @@ class ChatGUI {
                     e.stopPropagation()
                     this.tab.make_active({ id: item.dataset.id, name: item.dataset.name })
                     //mobile user list toggle
-                    this.tab.chat.toggle_user_list(room)
+                    let mql = window.matchMedia('(hover: none) and (orientation: portrait)');
+                    if (mql.matches == true) {
+                        this.tab.chat.toggle_user_list(room)
+                    }
                 })
 
                 close.addEventListener('click', (e) => {
