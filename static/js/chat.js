@@ -930,7 +930,6 @@ class ChatGUI {
                 this.upload_input.classList.add('chat-input-upload')
                 this.upload_input.type = 'file'
                 this.upload_input.accept = 'image/png, image/jpeg'
-                this.upload_input.capture = true
                 this.upload_input.multiple = true
                 this.image_preview.classList.add('chat-input-image-preview')
                 this.inner.classList.add(this.inner_class)
