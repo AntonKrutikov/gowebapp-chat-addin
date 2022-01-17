@@ -367,7 +367,7 @@
 
 .chat-input-textarea {
     margin: 1rem;
-    width: 100%;
+    flex: 1;
     color: var(--text-color);
     background: var(--background-textarea);
     border: 0;
@@ -389,7 +389,14 @@
 .chat-input-textarea::-webkit-scrollbar-thumb {
     background-color: #eee;
     box-shadow: 0 0 1px rgba(255, 255, 255, .5);
-    }
+}
+
+.chat-input-emoji {
+    width: 1.5em;
+    height: 1.5em;
+    filter: invert() opacity(0.75);
+    cursor: pointer;
+}
 
 .chat-input-send-button {
     width: 48px;
@@ -492,6 +499,10 @@ animation: blink 1s step-start 0s infinite;
 }
 .chat-popup-close {
     margin-top: 1rem;
+}
+
+.emoji-picker__wrapper {
+    z-index: 5000;
 }
 
 @media (hover: none) {

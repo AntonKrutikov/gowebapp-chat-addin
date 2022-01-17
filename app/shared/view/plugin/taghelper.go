@@ -25,6 +25,17 @@ func TagHelper(v view.View) template.FuncMap {
 		return template.HTML(`<script type="text/javascript" src="` + path + `"></script>`)
 	}
 
+	f["JS_MODULE"] = func(s string) template.HTML {
+		path, err := v.AssetTimePath(s)
+
+		if err != nil {
+			log.Println("JS Error:", err)
+			return template.HTML("<!-- JS Error: " + s + " -->")
+		}
+
+		return template.HTML(`<script type="module" src="` + path + `"></script>`)
+	}
+
 	f["CSS"] = func(s string) template.HTML {
 		path, err := v.AssetTimePath(s)
 

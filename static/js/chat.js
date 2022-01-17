@@ -1,3 +1,6 @@
+// support emoji with external lib
+import { EmojiButton } from 'https://cdn.jsdelivr.net/npm/@joeattardi/emoji-button@latest/dist/index.min.js'
+
 const UPDATE_POLLING_TIMEOUT = 500 // 0.1 sec (not bad to make smaller)
 const HEARTBEAT_TIMEOUT = 15 * 1000 // must be lower then server timeout (server_value/2 - is ok)
 const RECONNECT_ATTEMPT_TIMEOUT = 5 * 1000
@@ -26,7 +29,7 @@ class Chat {
         this.gui.rooms.USE_COLORS = true
     }
     async init() {
-        this.user = await this.api.join()
+        this.user = await this.api.join()        
         this.gui.user = this.user
         this.api.update(this.user.session)
 
@@ -875,6 +878,7 @@ class ChatGUI {
             container: document.createElement('div'),
             input: document.createElement('div'),
             textarea: document.createElement('textarea'),
+            emoji: document.createElement('img'),
             send_button: document.createElement('div'),
             inner: document.createElement('div'),
             users: document.createElement('div'),
@@ -889,6 +893,8 @@ class ChatGUI {
                 this.container.classList.add(this.container_class)
                 this.input.classList.add('chat-input')
                 this.textarea.classList.add('chat-input-textarea')
+                this.emoji.classList.add('chat-input-emoji')
+                this.emoji.src = '/static/assets/smile.png'
                 this.inner.classList.add(this.inner_class)
                 this.users.classList.add(this.users_class)
                 this.users.classList.add('chat-hide')
@@ -904,6 +910,7 @@ class ChatGUI {
                 let inner = this.inner.cloneNode()
                 let input = this.input.cloneNode()
                 let textarea = this.textarea.cloneNode()
+                let emoji = this.emoji.cloneNode()
                 let users = this.users.cloneNode()
                 let users_total = this.users_total.cloneNode()
                 let send_button = this.send_button.cloneNode()
@@ -924,6 +931,17 @@ class ChatGUI {
                 send_button.innerText = '→'
                 textarea.rows = 3
 
+                const emojiPicker = new EmojiButton({theme: 'dark', position: 'auto'})
+
+                emojiPicker.on('emoji', selection => {
+                    textarea.value += selection.emoji
+                  });
+
+                emoji.addEventListener('click', (e) => {
+                    emojiPicker.togglePicker(emoji)
+                })
+
+                input.appendChild(emoji)
                 input.appendChild(textarea)
                 input.appendChild(send_button)
                 container.appendChild(inner)
