@@ -1,5 +1,5 @@
 // support emoji with external lib
-import { EmojiButton } from 'https://cdn.jsdelivr.net/npm/@joeattardi/emoji-button@latest/dist/index.min.js'
+import { EmojiButton } from '/static/js/emoji-button.min.js'
 
 const UPDATE_POLLING_TIMEOUT = 500 // 0.1 sec (not bad to make smaller)
 const HEARTBEAT_TIMEOUT = 15 * 1000 // must be lower then server timeout (server_value/2 - is ok)
