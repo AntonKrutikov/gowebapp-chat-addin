@@ -505,6 +505,21 @@ animation: blink 1s step-start 0s infinite;
     z-index: 5000;
 }
 
+.emoji-picker__emojis {
+    overflow-x: hidden;
+}
+
+.emoji-picker__emojis::-webkit-scrollbar {
+    -webkit-appearance: none;
+    width: 7px;
+}
+.emoji-picker__emojis::-webkit-scrollbar-thumb {
+    background-color: #eee;
+    box-shadow: 0 0 1px rgba(255, 255, 255, .5);
+}
+
+
+
 @media (hover: none) {
     .chat-room-list {
         width: 100%;
@@ -577,6 +592,10 @@ animation: blink 1s step-start 0s infinite;
         background-size: contain;
         background-repeat: no-repeat;
         padding-left: 32px;
+    }
+    .emoji-picker__wrapper {
+        bottom: 100px;
+        top: unset !important;
     }
 }
 

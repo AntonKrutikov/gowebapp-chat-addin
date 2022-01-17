@@ -931,14 +931,23 @@ class ChatGUI {
                 send_button.innerText = '→'
                 textarea.rows = 3
 
-                const emojiPicker = new EmojiButton({theme: 'dark', position: 'auto'})
+                const emojiPicker = new EmojiButton({
+                    theme: 'dark', 
+                    // position: {
+                    //     bottom: 0
+                    // },
+                    showSearch: false,
+                    showPreview: false,
+                    rows: 4,
+                    autoHide: false
+                })
 
                 emojiPicker.on('emoji', selection => {
                     textarea.value += selection.emoji
                   });
 
                 emoji.addEventListener('click', (e) => {
-                    emojiPicker.togglePicker(emoji)
+                    emojiPicker.togglePicker(textarea)
                 })
 
                 input.appendChild(emoji)
