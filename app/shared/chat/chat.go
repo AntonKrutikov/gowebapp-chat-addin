@@ -232,5 +232,27 @@ func ProcessMessage(msg *Message, session *Session) {
 			PublishMessage(session.ID, MessageToManyRequests(session, msg.To))
 		}
 		session.User.FixedWindowCounterMu.Unlock()
+	case "mute":
+		if !UserExists(msg.To.ID) {
+			PublishMessage(session.ID, MessageUserNotFound(session, msg.To))
+			break
+		}
+		if !ValidateMessage(msg, session) {
+			break
+		}
+		target := GetUser(msg.To.ID, "")
+		session.User.AddToMute(target)
+		PublishMessage(session.User.ID, MessageUserMuted(session, MessageUser{ID: target.ID, Name: target.Name}))
+	case "unmute":
+		if !UserExists(msg.To.ID) {
+			PublishMessage(session.ID, MessageUserNotFound(session, msg.To))
+			break
+		}
+		if !ValidateMessage(msg, session) {
+			break
+		}
+		target := GetUser(msg.To.ID, "")
+		session.User.RemoveFromMute(target)
+		PublishMessage(session.User.ID, MessageUserUnmuted(session, MessageUser{ID: target.ID, Name: target.Name}))
 	}
 }

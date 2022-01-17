@@ -90,6 +90,13 @@ func (s *Session) Subscribe(name string) (*nats.Subscription, error) {
 			if err != nil {
 				log.Println("NATS(chat): failed to decode message.", err)
 			}
+			//Not add muted user messages to room messages
+			from := GetUser(m.From.ID, "")
+			muted, _ := s.User.CheckInMute(from)
+			if muted && m.Type == "room.message" {
+				continue
+			}
+
 			s.BufferMu.Lock()
 			s.Buffer = append(s.Buffer, &m)
 			s.BufferMu.Unlock()

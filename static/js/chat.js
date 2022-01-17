@@ -27,6 +27,7 @@ class Chat {
     }
     async init() {
         this.user = await this.api.join()
+        this.gui.user = this.user
         this.api.update(this.user.session)
 
         this.gui.init()
@@ -166,6 +167,27 @@ class Chat {
             this.gui.tab.add(user, true)
         }
 
+        // Mute/unmute user
+        this.gui.onMute = (user) => {
+            this.api.muteUser(user)
+        }
+
+        this.api.onMuted = (m) => {
+            let user = m.from
+            user.muted = true
+            this.gui.tab.chat.update_mute_state(user)
+        }
+
+        this.gui.onUnmute = (user) => {
+            this.api.unmuteUser(user)
+        }
+
+        this.api.onUnmuted = (m) => {
+            let user = m.from
+            user.muted = false
+            this.gui.tab.chat.update_mute_state(user)
+        }
+
         this.gui.onCreateRoom = (room) => {
             this.api.createRoom(room)
             this.user.wait_room_created.push(room)
@@ -244,6 +266,8 @@ class ChatApi {
     onRoomMaxCount; // can't create more rooms
     onRoomBadName; // room name depricated
     onRoomAlreadyExists; // this room already exists
+    onMuted; //user muted
+    onUnmuted; //user unmuted
 
 
     async join() {
@@ -389,6 +413,12 @@ class ChatApi {
             case 'room.already_exists':
                 if (this.onRoomAlreadyExists) this.onRoomAlreadyExists(message)
                 break
+            case 'muted':
+                if (this.onMuted) this.onMuted(message)
+                break
+            case 'unmuted':
+                if (this.onUnmuted) this.onUnmuted(message)
+                break
         }
     }
 
@@ -464,6 +494,20 @@ class ChatApi {
             to: user
         })
     }
+
+    muteUser(user) {
+        this.send({
+            type: 'mute',
+            to: user
+        })
+    }
+
+    unmuteUser(user) {
+        this.send({
+            type: 'unmute',
+            to: user
+        })
+    }
 }
 
 class User {
@@ -486,6 +530,8 @@ class ChatGUI {
     onSendText;
     onRequestPrivate;
     onCreateRoom;
+    onMute;
+    onUnmute;
 
     container = document.createElement('div')
     rooms = {
@@ -700,7 +746,7 @@ class ChatGUI {
             this.header.make_active(room)
             this.chat.make_active(room)
             this.root.rooms.list.classList.add('chat-hide') //mobile fix
-            
+
         },
         send(room, text) {
             if (this.root.onSendText) this.root.onSendText(room, text)
@@ -1019,17 +1065,38 @@ class ChatGUI {
                 let text = document.createElement('span')
 
                 row.classList.add('chat-user-list-row')
-
                 text.innerText = user.name
 
                 row.dataset.id = user.id
                 row.dataset.name = user.name
-
-                row.addEventListener('click', () => {
-                    this.tab.request_private(user)
-                })
-
+                row.title = user.name
                 row.appendChild(text)
+
+                // Add ability to start private chat with others and mute others
+                if (user.id !== this.tab.root.user.id) {
+
+                    row.addEventListener('click', () => {
+                        this.tab.request_private(user)
+                    })
+
+                    let mute = document.createElement('img')
+                    mute.src = '/static/assets/block.png'
+                    mute.classList.add('chat-user-list-row-mute')
+                    row.dataset.muted = user.muted ?? false
+
+                    mute.addEventListener('click', (e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        console.log(this.tab.root.user)
+                        if (row.dataset.muted == 'false') {
+                            this.tab.root.onMute(user)
+                        } else {
+                            this.tab.root.onUnmute(user)
+                        }
+                    })
+                    row.appendChild(mute)
+                }
+
 
                 let target = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}']`)
                 if (target) {
@@ -1108,6 +1175,13 @@ class ChatGUI {
             update_room_name(room, updated) {
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-id='${room.id}']`)
                 if (target) target.dataset.name = updated.name
+            },
+            update_mute_state(user) {
+                //Update mute state for all chat tabs
+                let user_list = this.tab.container.querySelectorAll(`.chat-user-list-row[data-id='${user.id}']`)
+                user_list.forEach(u => {
+                    u.dataset.muted = user.muted
+                })
             }
         }
     }

@@ -181,7 +181,7 @@ func JoinRoom(room *Room, session *Session, notify bool) error {
 		}
 		room.Sessions[session.ID] = session
 		session.Rooms[room.Name] = room
-		PublishMessage(session.ID, MessageRoomJoinWithHistory(session, room, GetRoomHistory(room)))
+		PublishMessage(session.ID, MessageRoomJoinWithHistory(session, room, GetRoomHistory(room, session.User)))
 	}
 	room.SessionsMu.Unlock()
 
@@ -306,13 +306,21 @@ func AddToHistory(room *Room, msg *Message) {
 	roomHistory.Mu.Unlock()
 }
 
-func GetRoomHistory(room *Room) []*Message {
+func GetRoomHistory(room *Room, for_user *User) []*Message {
 	history := []*Message{}
 
 	RoomHistoryStore.Mu.Lock()
 	if roomHistory := RoomHistoryStore.Map[room.ID]; roomHistory != nil {
 		roomHistory.Mu.Lock()
-		history = append(history, roomHistory.History...)
+		for _, message := range roomHistory.History {
+			// Filter message if it from user in MuteList
+			from := GetUser(message.From.ID, "")
+			muted, since := for_user.CheckInMute(from)
+			if muted && since.Before(message.Timestamp) {
+				continue
+			}
+			history = append(history, message)
+		}
 		roomHistory.Mu.Unlock()
 	}
 	RoomHistoryStore.Mu.Unlock()

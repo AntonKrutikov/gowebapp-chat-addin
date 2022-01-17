@@ -313,10 +313,12 @@
     z-index: 3020;
 }
 .chat-user-list-row {
+    display: flex;
     width: 100%;
     padding: 1rem;
     padding-left: 2rem;
     flex-direction: row;
+    align-items: center;
     border-bottom: 1px solid #424242;
     cursor: pointer;
     background: url("/static/assets/private-message.png");
@@ -328,6 +330,21 @@
     text-overflow: ellipsis;
     min-height: 4rem;
     white-space: nowrap;
+}
+.chat-user-list-row > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.chat-user-list-row-mute {
+    height: 1em;
+    filter: grayscale() opacity(0.5);
+    margin-left: 1em;
+}
+.chat-user-list-row[data-muted='true'] .chat-user-list-row-mute{
+    filter: none;
+}
+.chat-user-list-row-mute:hover {
+    filter: grayscale();
 }
 
 .chat-input {

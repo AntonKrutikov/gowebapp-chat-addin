@@ -14,6 +14,8 @@ type User struct {
 	SessionsMu           sync.Mutex          `json:"-"`
 	FixedWindowCounter   int                 `json:"-"`
 	FixedWindowCounterMu sync.Mutex          `json:"-"`
+	MuteList             map[*User]time.Time `json:"-"`
+	MuteListMu           sync.Mutex          `json:"-"`
 }
 
 var UserStore = struct {
@@ -36,6 +38,8 @@ func GetUser(id string, name string) *User {
 			SessionsMu:           sync.Mutex{},
 			FixedWindowCounter:   0,
 			FixedWindowCounterMu: sync.Mutex{},
+			MuteList:             map[*User]time.Time{},
+			MuteListMu:           sync.Mutex{},
 		}
 
 		go func() {
@@ -124,4 +128,25 @@ func (u *User) DeleteSession(s *Session) {
 	s.Closed <- true
 
 	s = nil
+}
+
+func (u *User) AddToMute(target *User) {
+	u.MuteListMu.Lock()
+	u.MuteList[target] = time.Now()
+	u.MuteListMu.Unlock()
+}
+
+func (u *User) RemoveFromMute(target *User) {
+	u.MuteListMu.Lock()
+	delete(u.MuteList, target)
+	u.MuteListMu.Unlock()
+}
+
+func (u *User) CheckInMute(target *User) (bool, time.Time) {
+	muted := false
+	since := time.Time{}
+	u.MuteListMu.Lock()
+	since, muted = u.MuteList[target]
+	u.MuteListMu.Unlock()
+	return muted, since
 }

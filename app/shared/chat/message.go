@@ -17,8 +17,15 @@ type Message struct {
 }
 
 type MessageUser struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Muted bool   `json:"muted"`
+}
+
+func (mu *MessageUser) fromUser(u *User) *MessageUser {
+	mu.ID = u.ID
+	mu.Name = u.Name
+	return mu
 }
 
 func ValidateMessage(msg *Message, s *Session) bool {
@@ -151,7 +158,19 @@ func MessageRoomLeave(s *Session, room *Room) *Message {
 
 func MessageRoomUsers(s *Session, room *Room) *Message {
 	users := room.GetUsers()
-	body, _ := json.Marshal(users)
+	m_users := []*MessageUser{}
+	for _, u := range users {
+		mu := MessageUser{ID: u.ID, Name: u.Name, Muted: false}
+		s.User.MuteListMu.Lock()
+		for target := range s.User.MuteList {
+			if target == u {
+				mu.Muted = true
+			}
+		}
+		s.User.MuteListMu.Unlock()
+		m_users = append(m_users, &mu)
+	}
+	body, _ := json.Marshal(m_users)
 
 	return &Message{
 		Timestamp: time.Now(),
@@ -359,5 +378,31 @@ func MessagePrivateDelivered(s *Session, body string, callee MessageUser) *Messa
 			Name: s.User.Name,
 		},
 		From: callee,
+	}
+}
+
+func MessageUserMuted(s *Session, target MessageUser) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "muted",
+		Body:      "User muted",
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: target,
+	}
+}
+
+func MessageUserUnmuted(s *Session, target MessageUser) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "unmuted",
+		Body:      "User unmuted",
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: target,
 	}
 }
