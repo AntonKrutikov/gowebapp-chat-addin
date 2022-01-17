@@ -319,6 +319,7 @@ func GetRoomHistory(room *Room, for_user *User) []*Message {
 			if muted && since.Before(message.Timestamp) {
 				continue
 			}
+			StripMissingAttachments(message)
 			history = append(history, message)
 		}
 		roomHistory.Mu.Unlock()

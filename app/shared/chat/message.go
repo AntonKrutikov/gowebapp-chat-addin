@@ -2,18 +2,21 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
 )
 
 type Message struct {
-	Timestamp time.Time   `json:"timestamp"`
-	Type      string      `json:"type"`
-	Body      string      `json:"body"`
-	From      MessageUser `json:"from"`
-	To        MessageUser `json:"to"`
+	Timestamp   time.Time   `json:"timestamp"`
+	Type        string      `json:"type"`
+	Body        string      `json:"body"`
+	From        MessageUser `json:"from"`
+	To          MessageUser `json:"to"`
+	Attachments []string    `json:"attachments"`
 }
 
 type MessageUser struct {
@@ -42,6 +45,19 @@ func ValidateMessage(msg *Message, s *Session) bool {
 	}
 
 	return true
+}
+
+// Remove attachment url from message if file not exists
+// TODO: while we have not full persistence chat, we need to clean history and attachments...
+func StripMissingAttachments(msg *Message) {
+	temp := msg.Attachments[:0]
+	for _, a := range msg.Attachments {
+		if _, err := os.Stat(a); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		temp = append(temp, a)
+	}
+	msg.Attachments = temp
 }
 
 func MessageDisconnected() *Message {

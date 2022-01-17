@@ -18,6 +18,11 @@ const ADD_ROOM_PLACEHOLDER = 'room name'
 // This colors used one by one fro room colors and users colors if options enabled: this.gui.tab.USE_COLORS and this.gui.rooms.USE_COLORS
 const COLORS = ['#E57373', '#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#FF8F00', '#43A047']
 
+//File upload limits
+const MAX_FILES_PER_MESSAGE = 5
+const MAX_FILE_SIZE = 2097152 //2MB
+const ATTACHMENTS_VALID_PATH_PREFIX = 'static/upload'
+
 class Chat {
     user; // user info
     rooms = []; // public rooms (default)
@@ -29,7 +34,7 @@ class Chat {
         this.gui.rooms.USE_COLORS = true
     }
     async init() {
-        this.user = await this.api.join()        
+        this.user = await this.api.join()
         this.gui.user = this.user
         this.api.update(this.user.session)
 
@@ -141,11 +146,30 @@ class Chat {
             this.gui.rooms.list.classList.remove('chat-hide')
         }
 
-        this.gui.onSendText = (room, text) => {
+        this.gui.onSendText = async (room, text, files) => {
+            // Upload images
+            let attachments = []
+            if (files.length > 0) {
+                let data = new FormData()
+                for (const file of files) {
+                    data.append('files', file)
+                }
+                let response = await fetch('/chat/upload', {
+                    method: 'POST',
+                    body: data
+                })
+                let result = await response.json()
+                result.forEach(a => {
+                    if (typeof (a) === 'string' && a.startsWith(ATTACHMENTS_VALID_PATH_PREFIX)) {
+                        attachments.push(a)
+                    }
+                })
+
+            }
             if (room.type == 'public') {
-                this.api.sendText(room, text)
+                this.api.sendText(room, text, attachments)
             } else if (room.type == 'private') {
-                this.api.sendPrivateMessage(room, text)
+                this.api.sendPrivateMessage(room, text, attachments)
             }
         }
 
@@ -475,19 +499,21 @@ class ChatApi {
         })
     }
 
-    sendText(room, text) {
+    sendText(room, text, attachments = []) {
         this.send({
             to: room,
             type: 'room.message',
-            body: text
+            body: text,
+            attachments: attachments
         })
     }
 
-    sendPrivateMessage(room, text) {
+    sendPrivateMessage(room, text, attachments = []) {
         this.send({
             to: room,
             type: 'private.message',
-            body: text
+            body: text,
+            attachments: attachments
         })
     }
 
@@ -751,8 +777,8 @@ class ChatGUI {
             this.root.rooms.list.classList.add('chat-hide') //mobile fix
 
         },
-        send(room, text) {
-            if (this.root.onSendText) this.root.onSendText(room, text)
+        send(room, text, files) {
+            if (this.root.onSendText) this.root.onSendText(room, text, files)
         },
         request_private(user) {
             if (this.root.onRequestPrivate) this.root.onRequestPrivate(user)
@@ -879,6 +905,9 @@ class ChatGUI {
             input: document.createElement('div'),
             textarea: document.createElement('textarea'),
             emoji: document.createElement('img'),
+            image_upload: document.createElement('img'),
+            upload_input: document.createElement('input'),
+            image_preview: document.createElement('div'),
             send_button: document.createElement('div'),
             inner: document.createElement('div'),
             users: document.createElement('div'),
@@ -895,6 +924,15 @@ class ChatGUI {
                 this.textarea.classList.add('chat-input-textarea')
                 this.emoji.classList.add('chat-input-emoji')
                 this.emoji.src = '/static/assets/smile.png'
+                this.image_upload.classList.add('chat-input-image-upload')
+                this.image_upload.src = '/static/assets/image-upload.png'
+                this.image_upload.title = 'png, jpeg, max 2MB'
+                this.upload_input.classList.add('chat-input-upload')
+                this.upload_input.type = 'file'
+                this.upload_input.accept = 'image/png, image/jpeg'
+                this.upload_input.capture = true
+                this.upload_input.multiple = true
+                this.image_preview.classList.add('chat-input-image-preview')
                 this.inner.classList.add(this.inner_class)
                 this.users.classList.add(this.users_class)
                 this.users.classList.add('chat-hide')
@@ -911,6 +949,9 @@ class ChatGUI {
                 let input = this.input.cloneNode()
                 let textarea = this.textarea.cloneNode()
                 let emoji = this.emoji.cloneNode()
+                let image_upload = this.image_upload.cloneNode()
+                let upload_input = this.upload_input.cloneNode()
+                let image_preview = this.image_preview.cloneNode()
                 let users = this.users.cloneNode()
                 let users_total = this.users_total.cloneNode()
                 let send_button = this.send_button.cloneNode()
@@ -932,10 +973,7 @@ class ChatGUI {
                 textarea.rows = 3
 
                 const emojiPicker = new EmojiButton({
-                    theme: 'dark', 
-                    // position: {
-                    //     bottom: 0
-                    // },
+                    theme: 'dark',
                     showSearch: false,
                     showPreview: false,
                     rows: 4,
@@ -944,12 +982,67 @@ class ChatGUI {
 
                 emojiPicker.on('emoji', selection => {
                     textarea.value += selection.emoji
-                  });
+                });
 
                 emoji.addEventListener('click', (e) => {
                     emojiPicker.togglePicker(textarea)
                 })
 
+                image_upload.addEventListener('click', (e) => {
+                    // upload_input.value = null
+                    upload_input.click()
+                })
+
+                let files = []
+
+                upload_input.addEventListener('change', (e) => {
+                    if (upload_input.files.length > 0) {
+                        for (let i = 0; i < upload_input.files.length; i++) {
+                            let file = upload_input.files[i]
+                            if (files.length < MAX_FILES_PER_MESSAGE
+                                && file.size <= MAX_FILE_SIZE
+                                && files.findIndex(f => f.name === file.name && f.size === file.size) == -1) {
+                                files.push(file)
+
+                                let image_container = document.createElement('div');
+                                let image = document.createElement('img')
+                                image.src = window.URL.createObjectURL(file);
+
+                                let uploaded = document.createElement('div')
+                                uploaded.classList.add('chat-input-image-preview-uploaded')
+
+                                let number = file.size
+                                if (number < 1024) {
+                                    number = number + 'bytes';
+                                } else if (number > 1024 && number < 1048576) {
+                                    number = (number / 1024).toFixed(1) + 'KB';
+                                } else if (number > 1048576) {
+                                    number = (number / 1048576).toFixed(1) + 'MB';
+                                }
+
+                                uploaded.innerText = number
+
+                                let close = document.createElement('div')
+                                close.innerText = 'x'
+                                close.classList.add('chat-input-image-preview-close')
+                                close.addEventListener('click', (e) => {
+                                    files = files.filter(f => f !== file)
+                                    image_preview.removeChild(image_container)
+                                })
+
+                                image_container.appendChild(image)
+                                image_container.appendChild(close)
+                                image_container.appendChild(uploaded)
+                                image_preview.appendChild(image_container)
+                            }
+                        }
+                    }
+                    console.log(files)
+                })
+
+                input.appendChild(image_preview)
+                input.appendChild(upload_input)
+                input.appendChild(image_upload)
                 input.appendChild(emoji)
                 input.appendChild(textarea)
                 input.appendChild(send_button)
@@ -962,15 +1055,22 @@ class ChatGUI {
                     if (e.key == "Enter") {
                         e.preventDefault()
                         let msg = e.target.value
-                        this.tab.send({ id: container.dataset.id, name: container.dataset.name, type: container.dataset.type }, msg)
+                        this.tab.send({ id: container.dataset.id, name: container.dataset.name, type: container.dataset.type }, msg, files)
                         e.target.value = ''
+                        upload_input.value = null
+                        files = []
+                        image_preview.replaceChildren()
                     }
                 })
 
                 send_button.addEventListener('click', (e) => {
                     let msg = textarea.value
-                    this.tab.send({ id: container.dataset.id, name: container.dataset.name, type: container.dataset.type }, msg)
+                    this.tab.send({ id: container.dataset.id, name: container.dataset.name, type: container.dataset.type }, msg, files)
                     textarea.value = ''
+                    upload_input.value = null
+                    files = []
+                    image_preview.replaceChildren()
+
                 })
 
                 container.dataset.active = false
@@ -1022,6 +1122,18 @@ class ChatGUI {
 
                 row.appendChild(from)
                 row.appendChild(text)
+
+                // Add attachments to message box
+                if (Array.isArray(message.attachments)) {
+                    message.attachments.forEach(a => {
+                        let image = document.createElement('img')
+                        image.src = a
+                        row.appendChild(image)
+                        image.addEventListener('click', (e) => {
+                            this.tab.root.image_popup.show(a)
+                        })
+                    })
+                }
 
                 try {
                     let d = new Date(message?.timestamp)
@@ -1226,7 +1338,7 @@ class ChatGUI {
             this.close_button.classList.add('chat-popup-close')
 
             this.close_button.innerText = "Close"
-            this.message.innerText = "Max room count exceed"
+            this.message.innerText = ""
 
             this.inner.appendChild(this.message)
             this.inner.appendChild(this.close_button)
@@ -1260,6 +1372,53 @@ class ChatGUI {
         }
     }
 
+    image_popup = {
+        container: document.createElement('div'),
+        image: document.createElement('img'),
+        close: document.createElement('img'),
+        zoom: document.createElement('img'),
+        init(root) {
+            this.root = root
+            this.container.classList.add('image-popup')
+            this.image.classList.add('image-popup-image')
+            this.close.classList.add('image-popup-close')
+            this.close.src = '/static/assets/close.png'
+            this.zoom.classList.add('image-popup-zoom')
+            this.zoom.src = '/static/assets/maximize.png'
+
+            this.close.innerText = "x"
+            this.zoom.innerText = "Full"
+
+            this.container.appendChild(this.image)
+            this.container.appendChild(this.close)
+            this.container.appendChild(this.zoom)
+
+            this.close.addEventListener('click', () => {
+                this.hide()
+            })
+
+            this.zoom.addEventListener('click', (e) => {
+                if (this.container.classList.contains('image-popup-image-zoomed')) {
+                    this.container.classList.remove('image-popup-image-zoomed')
+                } else {
+                    this.container.classList.add('image-popup-image-zoomed')
+                }
+            })
+
+            this.hide()
+            root.appendChild(this.container)
+        },
+        show(href) {
+            this.image.src = href
+            this.container.style.display = null
+        },
+        hide() {
+            this.image.removeAttribute('src')
+            this.container.classList.remove('image-popup-image-zoomed')
+            this.container.style.display = 'none'
+        }
+    }
+
 
     init() {
         this.container.classList.add('chat-container')
@@ -1270,6 +1429,7 @@ class ChatGUI {
         document.body.appendChild(this.container)
 
         this.popup.init(this.container)
+        this.image_popup.init(this.container)
     }
 }
 

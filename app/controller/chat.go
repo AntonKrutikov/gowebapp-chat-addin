@@ -1,9 +1,13 @@
 package controller
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net/http"
+	"os"
 
 	"github.com/josephspurrier/gowebapp/app/shared/chat"
 	"github.com/josephspurrier/gowebapp/app/shared/session"
@@ -170,4 +174,83 @@ func ChatCloseGET(w http.ResponseWriter, r *http.Request) {
 
 	chatSession.User.DeleteSession(chatSession)
 	w.WriteHeader(200)
+}
+
+func ChatUploadPOST(w http.ResponseWriter, r *http.Request) {
+	session := session.Instance(r)
+
+	if session.Values["id"] == nil {
+		w.WriteHeader(401)
+		return
+	}
+
+	err := r.ParseMultipartForm(10 << 20)
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(500)
+		return
+	}
+
+	response := []string{}
+
+	files := r.MultipartForm.File["files"]
+	for _, f := range files {
+		contentType := f.Header.Get("Content-Type")
+		ftype := ""
+		if contentType == "image/jpeg" {
+			ftype = "jpeg"
+		} else if contentType == "image/png" {
+			ftype = "png"
+		} else {
+			continue
+		}
+		file, err := f.Open()
+		defer file.Close()
+
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		// Calculate hash of file. Try to not store duplicates
+		hash := sha256.New()
+		if _, err := io.Copy(hash, file); err != nil {
+			fmt.Println(err)
+			continue
+		}
+		file.Seek(0, 0)
+
+		fname := fmt.Sprintf("%s/%x.%s", chat.UPLOAD_DIR, hash.Sum(nil), ftype)
+
+		// Check if file with hash exists, if yes - return it
+		tempFile, err := os.Open(fmt.Sprintf(fname))
+		if err == nil {
+			response = append(response, tempFile.Name())
+		} else {
+			// Otherwise create new file and write upload data to it
+			fmt.Println(err)
+			tempFile, err = os.Create(fname)
+			if err != nil {
+				continue
+			}
+			fileBytes, err := ioutil.ReadAll(file)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+
+			_, err = tempFile.Write(fileBytes)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			// Append to resulting slice of paths
+			response = append(response, tempFile.Name())
+		}
+	}
+
+	body, _ := json.Marshal(response)
+
+	w.Write(body)
+
 }

@@ -38,6 +38,9 @@ const MAX_ROOM_HISTORY_MESSAGES = 200
 const ROOM_PUBLIC = "public"
 const ROOM_PRIVATE = "private"
 
+//Upload dir
+const UPLOAD_DIR = "static/upload"
+
 // Dictionary of bad words wich will be replaced by map value or **** if no map value
 var BadWordsDictionary = map[*regexp.Regexp]string{
 	regexp.MustCompile("fu+c+k"):             "f***",
@@ -194,6 +197,9 @@ func ProcessMessage(msg *Message, session *Session) {
 			break
 		}
 
+		// Check all attachments exists
+		StripMissingAttachments(msg)
+
 		// Check user spam to fast
 		session.User.FixedWindowCounterMu.Lock()
 		if session.User.FixedWindowCounter <= FIXED_WINDOW_MAX {
@@ -213,6 +219,10 @@ func ProcessMessage(msg *Message, session *Session) {
 		if !ValidateMessage(msg, session) {
 			break
 		}
+
+		// Check all attachments exists
+		StripMissingAttachments(msg)
+
 		// Force set message from to session data, to prevent message fake
 		msg.From = MessageUser{
 			ID:   session.User.ID,

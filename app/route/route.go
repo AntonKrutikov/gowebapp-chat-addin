@@ -131,6 +131,10 @@ func routes() *httprouter.Router {
 		New(acl.DisallowAnon).
 		ThenFunc(controller.ChatCloseGET)))
 
+	r.POST("/chat/upload", hr.Handler(alice.
+		New(acl.DisallowAnon).
+		ThenFunc(controller.ChatUploadPOST)))
+
 	return r
 }
 

@@ -195,6 +195,7 @@
 .chat-tabs-header-container {
     width: 100%;
     overflow-x: auto; 
+    overflow-y: hidden;
     height: 3rem;
     background: var(--bacground);
     color: #FAFAFA;
@@ -349,6 +350,7 @@
 
 .chat-input {
     width: 90%;
+    overflow: hidden;
     justify-self: center;
     margin: 1rem 0;
     height: min-content;
@@ -361,6 +363,7 @@
     flex-direction: row;
     justify-content: center;
     align-items: center;
+    flex-wrap: wrap;
     padding: 0 1rem;
 
 }
@@ -391,11 +394,96 @@
     box-shadow: 0 0 1px rgba(255, 255, 255, .5);
 }
 
+.chat-input-image-preview {
+    flex-basis: 100%;
+    display: flex;
+    flex-direction: row;
+    overflow-y: hidden;
+    overflow-x: auto;
+    padding: 0 64px;
+
+}
+.chat-input-image-preview::-webkit-scrollbar {
+    -webkit-appearance: none;
+    height: 7px;
+}
+.chat-input-image-preview::-webkit-scrollbar-thumb {
+    background-color: #eee;
+    box-shadow: 0 0 1px rgba(255, 255, 255, .5);
+}
+.chat-input-image-preview > div {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    margin: 5px;
+    height: 64px;
+    min-width: 64px;
+    border: 1px solid #fff;
+    box-shadow: 2px 2px 2px #999;
+    overflow:hidden;
+
+}
+.chat-input-image-preview > div > img {
+    object-fit: contain;
+    height: 64px;
+    max-width: 256px;
+}
+.chat-input-image-preview-close {
+    background: #222;
+    color: #fff;
+    position: absolute;
+    top:0;
+    right: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.75;
+}
+.chat-input-image-preview-uploaded {
+    color: green;
+    position: absolute;
+    bottom:0;
+    background: #222;
+    color: #fff;
+    width: 100%;
+    overflow: hidden;
+    height: 1em;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+}
+
+.chat-input-upload {
+    display: none !important;
+}
+.chat-input-image-upload {
+    width: 1.5em;
+    height: 1.5em;
+    filter: invert();
+    opacity: 0.75;
+    cursor: pointer;
+    margin-right: 0.5em;
+}
+.chat-input-image-upload:hover {
+    opacity: 1;
+}
+
 .chat-input-emoji {
     width: 1.5em;
     height: 1.5em;
-    filter: invert() opacity(0.75);
+    filter: invert();
+    opacity: 0.75;
     cursor: pointer;
+}
+.chat-input-emoji:hover {
+    opacity: 1;
 }
 
 .chat-input-send-button {
@@ -445,6 +533,9 @@
 .chat-message b {
     padding-right: 1rem;
     cursor: pointer;
+}
+.chat-message img {
+    object-fit: contain;
 }
 
 .chat-system-message {
@@ -516,6 +607,68 @@ animation: blink 1s step-start 0s infinite;
 .emoji-picker__emojis::-webkit-scrollbar-thumb {
     background-color: #eee;
     box-shadow: 0 0 1px rgba(255, 255, 255, .5);
+}
+
+.image-popup {
+    position: absolute;
+    z-index: 6000;
+    background: rgba(0, 0, 0, 0.8);
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    display: grid;
+    grid-template-columns: 100%;
+    grid-template-rows: 100%;
+}
+.image-popup-close {
+    position: fixed;
+    bottom: 32px;
+    left: calc(50% + 64px);
+    transform: translate(-50%);
+    font-size: 32px;
+    width: 64px;
+    height: 64px;
+    background: rgba(0, 0, 0, 0.9);
+    color: #fff;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    border-radius: 15px;
+    padding: 15px;
+}
+.image-popup-zoom {
+    position: fixed;
+    bottom: 32px;
+    left: calc(50% - 64px);
+    transform: translate(-50%);
+    font-size: 32px;
+    width: 64px;
+    height: 64px;
+    background: rgba(0, 0, 0, 0.9);
+    color: #fff;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    border-radius: 15px;
+    padding: 15px;
+
+}
+.image-popup-image {
+    max-width: 90%;
+    max-height: 90%;
+    object-fit: contain;
+    align-self: center;
+    justify-self: center;
+}
+.image-popup-image-zoomed {
+    grid-template-columns: unset;
+    grid-template-rows: unset;
+}
+.image-popup-image-zoomed .image-popup-image {
+    max-width: unset;
+    max-height: unset;
 }
 
 
