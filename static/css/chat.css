@@ -351,7 +351,7 @@ body {
 .chat-user-list-row-mute {
     height: 1em;
     filter: grayscale() opacity(0.5);
-    margin-left: 1em;
+    margin-left: 3em;
 }
 .chat-user-list-row[data-muted='true'] .chat-user-list-row-mute{
     filter: none;

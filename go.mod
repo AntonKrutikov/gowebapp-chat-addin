@@ -15,6 +15,7 @@ require (
 	github.com/justinas/alice v1.2.0
 	github.com/nats-io/nats-server/v2 v2.6.6 // indirect
 	github.com/nats-io/nats.go v1.13.1-0.20211122170419-d7c1d78a50fc
+	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
 	golang.org/x/crypto v0.0.0-20210616213533-5ff15b29337e
 	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect

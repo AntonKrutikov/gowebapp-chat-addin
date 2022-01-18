@@ -11,12 +11,12 @@ import (
 )
 
 type Message struct {
-	Timestamp   time.Time   `json:"timestamp"`
-	Type        string      `json:"type"`
-	Body        string      `json:"body"`
-	From        MessageUser `json:"from"`
-	To          MessageUser `json:"to"`
-	Attachments []string    `json:"attachments"`
+	Timestamp   time.Time     `json:"timestamp"`
+	Type        string        `json:"type"`
+	Body        string        `json:"body"`
+	From        MessageUser   `json:"from"`
+	To          MessageUser   `json:"to"`
+	Attachments []*Attachment `json:"attachments"`
 }
 
 type MessageUser struct {
@@ -52,7 +52,10 @@ func ValidateMessage(msg *Message, s *Session) bool {
 func StripMissingAttachments(msg *Message) {
 	temp := msg.Attachments[:0]
 	for _, a := range msg.Attachments {
-		if _, err := os.Stat(a); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(a.OriginalUrl); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if _, err := os.Stat(a.MinifiedUrl); errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		temp = append(temp, a)

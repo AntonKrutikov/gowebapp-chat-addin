@@ -160,9 +160,9 @@ class Chat {
                 })
                 let result = await response.json()
                 result.forEach(a => {
-                    if (typeof (a) === 'string' && a.startsWith(ATTACHMENTS_VALID_PATH_PREFIX)) {
+                    // if (typeof (a) === 'string' && a.startsWith(ATTACHMENTS_VALID_PATH_PREFIX)) {
                         attachments.push(a)
-                    }
+
                 })
 
             }
@@ -1129,10 +1129,10 @@ class ChatGUI {
                 if (Array.isArray(message.attachments)) {
                     message.attachments.forEach(a => {
                         let image = document.createElement('img')
-                        image.src = a
+                        image.src = a.minified_url
                         row.appendChild(image)
                         image.addEventListener('click', (e) => {
-                            this.tab.root.image_popup.show(a)
+                            this.tab.root.image_popup.show(a.original_url)
                         })
                     })
                 }
