@@ -256,6 +256,10 @@ func ProcessMessage(msg *Message, session *Session) {
 		// Check all attachments exists
 		StripMissingAttachments(msg)
 
+		// Log private history
+		history := PrivateHistoryStore.Get(session.User, to)
+		history.Add(msg)
+
 		// Check user spam to fast
 		session.User.FixedWindowCounterMu.Lock()
 		if session.User.FixedWindowCounter <= FIXED_WINDOW_MAX {
@@ -276,7 +280,8 @@ func ProcessMessage(msg *Message, session *Session) {
 		}
 		target := GetUser(msg.To.ID, "")
 		session.User.AddToMute(target)
-		PublishMessage(session.User.ID, MessageUserMuted(session, MessageUser{ID: target.ID, Name: target.Name}))
+		PublishMessage(session.User.ID, MessageUserMuted(session, target))
+		PublishMessage(target.ID, MessageUserMutedBy(target, session.User))
 	case "unmute":
 		if !UserExists(msg.To.ID) {
 			PublishMessage(session.ID, MessageUserNotFound(session, msg.To))
@@ -287,7 +292,9 @@ func ProcessMessage(msg *Message, session *Session) {
 		}
 		target := GetUser(msg.To.ID, "")
 		session.User.RemoveFromMute(target)
-		PublishMessage(session.User.ID, MessageUserUnmuted(session, MessageUser{ID: target.ID, Name: target.Name}))
+		PublishMessage(session.User.ID, MessageUserUnmuted(session, target))
+		PublishMessage(target.ID, MessageUserUnmutedBy(target, session.User))
+
 	case "private.request":
 		if !UserExists(msg.To.ID) {
 			PublishMessage(session.ID, MessageUserNotFound(session, msg.To))
@@ -302,5 +309,19 @@ func ProcessMessage(msg *Message, session *Session) {
 			break
 		}
 		PublishMessage(session.User.ID, MessagePrivateCreated(session, to))
+	case "private.history":
+		if !UserExists(msg.To.ID) {
+			PublishMessage(session.ID, MessageUserNotFound(session, msg.To))
+			break
+		}
+		if !ValidateMessage(msg, session) {
+			break
+		}
+
+		to := GetUser(msg.To.ID, "")
+
+		history := PrivateHistoryStore.Get(session.User, to)
+		PublishMessage(session.ID, MessagePrivateHistory(session, history, to))
+
 	}
 }

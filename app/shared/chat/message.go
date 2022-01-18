@@ -406,7 +406,27 @@ func MessagePrivateDelivered(s *Session, msg *Message, callee MessageUser) *Mess
 	}
 }
 
-func MessageUserMuted(s *Session, target MessageUser) *Message {
+func MessagePrivateHistory(s *Session, history *PrivateHistory, callee *User) *Message {
+	history.Mu.Lock()
+	mbody, _ := json.Marshal(history.History)
+	history.Mu.Unlock()
+
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "private.history",
+		Body:      string(mbody),
+		To: MessageUser{
+			ID:   s.User.ID,
+			Name: s.User.Name,
+		},
+		From: MessageUser{
+			ID:   callee.ID,
+			Name: callee.Name,
+		},
+	}
+}
+
+func MessageUserMuted(s *Session, target *User) *Message {
 	return &Message{
 		Timestamp: time.Now(),
 		Type:      "muted",
@@ -415,11 +435,14 @@ func MessageUserMuted(s *Session, target MessageUser) *Message {
 			ID:   s.User.ID,
 			Name: s.User.Name,
 		},
-		From: target,
+		From: MessageUser{
+			ID:   target.ID,
+			Name: target.Name,
+		},
 	}
 }
 
-func MessageUserUnmuted(s *Session, target MessageUser) *Message {
+func MessageUserUnmuted(s *Session, target *User) *Message {
 	return &Message{
 		Timestamp: time.Now(),
 		Type:      "unmuted",
@@ -428,6 +451,41 @@ func MessageUserUnmuted(s *Session, target MessageUser) *Message {
 			ID:   s.User.ID,
 			Name: s.User.Name,
 		},
-		From: target,
+		From: MessageUser{
+			ID:   target.ID,
+			Name: target.Name,
+		},
+	}
+}
+
+func MessageUserMutedBy(u *User, target *User) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "muted_by",
+		Body:      "You was muted",
+		To: MessageUser{
+			ID:   u.ID,
+			Name: u.Name,
+		},
+		From: MessageUser{
+			ID:   target.ID,
+			Name: target.Name,
+		},
+	}
+}
+
+func MessageUserUnmutedBy(u *User, target *User) *Message {
+	return &Message{
+		Timestamp: time.Now(),
+		Type:      "unmuted_by",
+		Body:      "You was unmuted",
+		To: MessageUser{
+			ID:   u.ID,
+			Name: u.Name,
+		},
+		From: MessageUser{
+			ID:   target.ID,
+			Name: target.Name,
+		},
 	}
 }

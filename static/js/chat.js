@@ -15,7 +15,10 @@ const DEBUG = true //show all messages in console
 const TEXTAREA_PLACEHOLDER = 'پیام شما'
 const ADD_ROOM_PLACEHOLDER = 'room name'
 const UPLOAD_QUOTA_SIZE_EXCEED = 'Too many uploads. File quota limit exceed. Please wait.'
-
+const MUTE_INFO_MESSAGE = 'You mute this user, messaging disabled'
+const UNMUTE_INFO_MESSAGE = 'You umute this user'
+const MUTE_BY_INFO_MESSAGE = 'You muted, messaging disabled'
+const UNMUTE_BY_INFO_MESSAGE = 'You umuted'
 // This colors used one by one fro room colors and users colors if options enabled: this.gui.tab.USE_COLORS and this.gui.rooms.USE_COLORS
 const COLORS = ['#E57373', '#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#FF8F00', '#43A047']
 
@@ -151,7 +154,7 @@ class Chat {
 
         this.gui.onSendText = async (room, text, files) => {
             let attachments = []
-            
+
             if (files.length > 0) {
                 // Check is upload allowed ?
                 let response = await fetch('/chat/upload/allowed')
@@ -187,9 +190,20 @@ class Chat {
         this.api.onPrivateMessage = (m) => {
             let room = m.from
             room.type = 'private'
-            this.gui.rooms.add(room, false)
-            this.gui.tab.add(room, false)
-            this.gui.tab.chat.add_message(room, m)
+            if (!this.gui.tab.chat.is_opened(room)) {
+                this.api.requestPrivateHistory(room)
+                this.gui.rooms.add(room, false)
+                this.gui.tab.add(room, false)
+            } else {
+                this.gui.tab.chat.add_message(room, m)
+            }
+        }
+
+        this.api.onPrivateHistory = (m) => {
+            let room = m.from
+            m.body.forEach(message => {
+                this.gui.tab.chat.add_message(room, message)
+            })
         }
 
         this.api.onPrivateDelivered = (m) => {
@@ -200,17 +214,19 @@ class Chat {
         }
 
         this.gui.onRequestPrivate = (user) => {
-            // user.type = 'private'
-            // this.gui.rooms.add(user, false)
-            // this.gui.tab.add(user, true)
             this.api.requestPrivate(user)
         }
 
         this.api.onPrivateCreated = (m) => {
             let user = m.from
             user.type = 'private'
-            this.gui.rooms.add(user, false)
-            this.gui.tab.add(user, true)
+            if (!this.gui.tab.chat.is_opened(user)) {
+                this.gui.rooms.add(user, false)
+                this.gui.tab.add(user, true)
+                this.api.requestPrivateHistory(user)
+            } else {
+                this.gui.tab.make_active(user)
+            }
         }
 
         // Mute/unmute user
@@ -226,6 +242,9 @@ class Chat {
                 this.muted_list.push(user)
             }
             this.gui.tab.chat.update_mute_state(user)
+            if (this.gui.tab.chat.is_opened(user)) {
+                this.gui.tab.chat.add_system_message(user, MUTE_INFO_MESSAGE)
+            }
         }
 
         this.gui.onUnmute = (user) => {
@@ -238,6 +257,23 @@ class Chat {
             let index = this.muted_list.indexOf(u => user.id == u.id)
             this.muted_list.splice(index, 1)
             this.gui.tab.chat.update_mute_state(user)
+            if (this.gui.tab.chat.is_opened(user)) {
+                this.gui.tab.chat.add_system_message(user, UNMUTE_INFO_MESSAGE)
+            }
+        }
+
+        this.api.onMutedBy = (m) => {
+            let user = m.from
+            if (this.gui.tab.chat.is_opened(user)) {
+                this.gui.tab.chat.add_system_message(user, MUTE_BY_INFO_MESSAGE)
+            }
+        }
+
+        this.api.onUnmutedBy = (m) => {
+            let user = m.from
+            if (this.gui.tab.chat.is_opened(user)) {
+                this.gui.tab.chat.add_system_message(user, UNMUTE_BY_INFO_MESSAGE)
+            }
         }
 
         this.gui.onCreateRoom = (room) => {
@@ -314,6 +350,7 @@ class ChatApi {
     onRoomMessage; // new message in room
     onRequestPrivate; //response to private invite
     onPrivateMessage; //new private message
+    onPrivateHistory; //return history for private chat
     onThrottling; // to fast sending - bad
     onRoomFull; // no free space - show error, can't join
     onRoomMaxCount; // can't create more rooms
@@ -321,6 +358,8 @@ class ChatApi {
     onRoomAlreadyExists; // this room already exists
     onMuted; //user muted
     onUnmuted; //user unmuted
+    onMutedBy; //other user mute you
+    onUnmutedBy; //other user unmute you
 
 
     async join() {
@@ -472,8 +511,17 @@ class ChatApi {
             case 'unmuted':
                 if (this.onUnmuted) this.onUnmuted(message)
                 break
+            case 'muted_by':
+                if (this.onMutedBy) this.onMutedBy(message)
+                break
+            case 'unmuted_by':
+                if (this.onUnmutedBy) this.onUnmutedBy(message)
+                break
             case 'private.created':
                 if (this.onPrivateCreated) this.onPrivateCreated(message)
+                break
+            case 'private.history':
+                if (this.onPrivateHistory) this.onPrivateHistory(message)
         }
     }
 
@@ -548,6 +596,13 @@ class ChatApi {
     requestPrivate(user) {
         this.send({
             type: 'private.request',
+            to: user
+        })
+    }
+
+    requestPrivateHistory(user) {
+        this.send({
+            type: 'private.history',
             to: user
         })
     }
@@ -809,7 +864,6 @@ class ChatGUI {
             if (this.root.onSendText) this.root.onSendText(room, text, files)
         },
         request_private(user) {
-            console.log(this.muted_list)
             if (this.root.onRequestPrivate) this.root.onRequestPrivate(user)
         },
         header: {
@@ -1283,18 +1337,24 @@ class ChatGUI {
 
                 let target = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}']`)
                 if (target) {
-                    let total = target.querySelector('.chat-user-list-total')
-                    if (total != null) {
-                        total.innerText = total.innerText == '' ? 1 : parseInt(total.innerText) + 1
-                    }
                     target.appendChild(row)
                 }
+                this.refresh_total_user_count(room)
             },
             remove_user(room, user) {
                 let exists = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}'] .chat-user-list-row[data-id='${user.id}']`)
                 if (exists) {
                     let users = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}']`)
                     users.removeChild(exists)
+                }
+                this.refresh_total_user_count(room)
+            },
+            refresh_total_user_count(room) {
+                let target = this.tab.container.querySelector(`.${this.users_class}[data-id='${room.id}']`)
+                if (target) {
+                    let total = target.querySelector('.chat-user-list-total')
+                    let count = target.querySelectorAll('.chat-user-list-row')
+                    total.innerText = count.length
                 }
             },
             refresh_users(room, users) {
