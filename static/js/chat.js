@@ -598,8 +598,8 @@ class ChatGUI {
                 this.last_color_index = this.last_color_index == COLORS.length - 1 ? 0 : this.last_color_index + 1
             }
             icon.innerText = alias ? alias.slice(1, 2).toUpperCase() : room.name.slice(0, 1).toUpperCase()
-            name.innerText = alias ?? room.name
-            name.title = alias ?? room.name
+            name.innerText = alias ? alias : room.name
+            name.title = alias ? alias : room.name
 
             if (room.type == 'public') {
                 last_message.appendChild(last_message_from)
@@ -805,8 +805,8 @@ class ChatGUI {
                 text.classList.add('chat-tab-header-title')
                 close.classList.add('chat-tab-header-close')
                 menu_icon.classList.add('chat-tab-header-menu-icon')
-                text.innerText = alias ?? room.name
-                text.title = alias ?? room.name
+                text.innerText = alias ? alias : room.name
+                text.title = alias ? alias : room.name
                 close.innerText = 'x'
                 menu_icon.appendChild(document.createElement('div'))
                 menu_icon.appendChild(document.createElement('div'))
@@ -1223,7 +1223,7 @@ class ChatGUI {
                     let mute = document.createElement('img')
                     mute.src = '/static/assets/block.png'
                     mute.classList.add('chat-user-list-row-mute')
-                    row.dataset.muted = user.muted ?? false
+                    row.dataset.muted = user.muted ? true : false
 
                     mute.addEventListener('click', (e) => {
                         e.preventDefault()
