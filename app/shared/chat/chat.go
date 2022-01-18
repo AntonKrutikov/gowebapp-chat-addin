@@ -255,7 +255,7 @@ func ProcessMessage(msg *Message, session *Session) {
 		if session.User.FixedWindowCounter <= FIXED_WINDOW_MAX {
 			session.User.FixedWindowCounter++
 			PublishMessage(msg.To.ID, msg)
-			PublishMessage(session.User.ID, MessagePrivateDelivered(session, msg.Body, msg.To))
+			PublishMessage(session.User.ID, MessagePrivateDelivered(session, msg, msg.To))
 		} else {
 			PublishMessage(session.ID, MessageToManyRequests(session, msg.To))
 		}

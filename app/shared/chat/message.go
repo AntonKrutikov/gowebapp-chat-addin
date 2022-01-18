@@ -386,11 +386,12 @@ func MessageHearbeat(s *Session) *Message {
 	}
 }
 
-func MessagePrivateDelivered(s *Session, body string, callee MessageUser) *Message {
+func MessagePrivateDelivered(s *Session, msg *Message, callee MessageUser) *Message {
 	return &Message{
-		Timestamp: time.Now(),
-		Type:      "private.delivered",
-		Body:      body,
+		Timestamp:   time.Now(),
+		Type:        "private.delivered",
+		Body:        msg.Body,
+		Attachments: msg.Attachments,
 		To: MessageUser{
 			ID:   s.User.ID,
 			Name: s.User.Name,
