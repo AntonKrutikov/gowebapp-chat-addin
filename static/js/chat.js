@@ -20,7 +20,7 @@ const COLORS = ['#E57373', '#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE'
 
 //File upload limits
 const MAX_FILES_PER_MESSAGE = 5
-const MAX_FILE_SIZE = 2097152 //2MB
+const MAX_FILE_SIZE = 5242880 //5MB
 const ATTACHMENTS_VALID_PATH_PREFIX = 'static/upload'
 
 class Chat {
@@ -76,7 +76,7 @@ class Chat {
         this.api.onRoomMessage = (m) => {
             let room = m.to
             if (m.from.id == this.user.id) {
-                this.gui.tab.chat.add_message(room, m, "end")
+                this.gui.tab.chat.add_message(room, m, 'flex-end')
                 this.gui.tab.chat.scroll_to_bottom(room, true) //always if user send self message
             } else {
                 this.gui.tab.chat.add_message(room, m)
@@ -995,9 +995,12 @@ class ChatGUI {
                 let files = []
 
                 upload_input.addEventListener('change', (e) => {
+                    console.log(e)
                     if (upload_input.files.length > 0) {
                         for (let i = 0; i < upload_input.files.length; i++) {
                             let file = upload_input.files[i]
+                            console.log(file)
+
                             if (files.length < MAX_FILES_PER_MESSAGE
                                 && file.size <= MAX_FILE_SIZE
                                 && files.findIndex(f => f.name === file.name && f.size === file.size) == -1) {
@@ -1415,6 +1418,11 @@ class ChatGUI {
             this.image.removeAttribute('src')
             this.container.classList.remove('image-popup-image-zoomed')
             this.container.style.display = 'none'
+            // document.head.removeChild(viewportmeta)
+            // viewportmeta.setAttribute('content', "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no");
+
+            // document.head.appendChild(viewportmeta)
+            // console.log(viewportmeta)
         }
     }
 

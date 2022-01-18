@@ -184,7 +184,7 @@ func ChatUploadPOST(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := r.ParseMultipartForm(10 << 20)
+	err := r.ParseMultipartForm(25 << 20)
 	if err != nil {
 		fmt.Println(err)
 		w.WriteHeader(500)

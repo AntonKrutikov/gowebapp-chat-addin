@@ -1,3 +1,15 @@
+html {
+    height: 100%;
+    overflow: hidden;
+}
+body {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    overflow:hidden;
+    display: flex;
+    flex-direction: column;
+}
 :root {
     --bacground: #222;
     --background-textarea: #373737;
@@ -717,6 +729,9 @@ animation: blink 1s step-start 0s infinite;
         max-width: 50%;
         max-height: 50%;
     }
+    .chat-input-textarea {
+        font-size: 16px;
+    }
 }
 
 @media (hover: none) and (orientation: portrait) {
@@ -750,6 +765,12 @@ animation: blink 1s step-start 0s infinite;
     .emoji-picker__wrapper {
         bottom: 100px;
         top: unset !important;
+    }
+    .image-popup-zoom {
+        display: none;
+    }
+    .image-popup-close {
+        left: 50%;
     }
 }
 

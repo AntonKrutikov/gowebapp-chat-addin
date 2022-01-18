@@ -16,3 +16,4 @@
 
 # Database
 *.db
+static/upload/*
