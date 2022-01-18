@@ -20,13 +20,11 @@ import (
 )
 
 type Attachment struct {
-	ID           string     `json:"id"`
-	Uploaded     time.Time  `json:"uploaded"`
-	Hash         string     `json:"hash"`
-	OriginalPath string     `json:"original_url"`
-	MinifiedPath string     `json:"minified_url"`
-	Rooms        []*Room    `json:"-"`
-	Mu           sync.Mutex `json:"-"`
+	ID           string    `json:"id"`
+	Uploaded     time.Time `json:"uploaded"`
+	Hash         string    `json:"hash"`
+	OriginalPath string    `json:"original_url"`
+	MinifiedPath string    `json:"minified_url"`
 }
 
 type AttachmentStoreType struct {
