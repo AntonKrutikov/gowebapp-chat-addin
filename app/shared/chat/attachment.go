@@ -13,13 +13,60 @@ import (
 	"mime/multipart"
 	"os"
 	"path"
+	"sync"
+	"time"
 
 	"github.com/nfnt/resize"
 )
 
 type Attachment struct {
-	OriginalUrl string `json:"original_url"`
-	MinifiedUrl string `json:"minified_url"`
+	ID           string     `json:"id"`
+	Uploaded     time.Time  `json:"uploaded"`
+	Hash         string     `json:"hash"`
+	OriginalPath string     `json:"original_url"`
+	MinifiedPath string     `json:"minified_url"`
+	Rooms        []*Room    `json:"-"`
+	Mu           sync.Mutex `json:"-"`
+}
+
+type AttachmentStoreType struct {
+	List []*Attachment
+	Mu   sync.Mutex
+}
+
+func (store *AttachmentStoreType) Add(a *Attachment) {
+	store.Mu.Lock()
+	store.List = append(store.List, a)
+	store.Mu.Unlock()
+}
+
+func (store *AttachmentStoreType) Remove(a *Attachment) {
+	store.Mu.Lock()
+	temp := store.List[:0]
+	last := true
+	for _, attachment := range store.List {
+		if a.ID != attachment.ID {
+			temp = append(temp, attachment)
+			if a.Hash == attachment.Hash {
+				last = false
+			}
+		}
+	}
+	store.List = temp
+	if last {
+		a.RemoveFiles()
+	}
+	store.Mu.Unlock()
+}
+
+var AttachmentStore = &AttachmentStoreType{
+	List: []*Attachment{},
+	Mu:   sync.Mutex{},
+}
+
+func (a *Attachment) RemoveFiles() {
+	os.Remove(a.OriginalPath)
+	os.Remove(a.MinifiedPath)
 }
 
 func AttachmentUpload(dir string, fh *multipart.FileHeader) (*Attachment, error) {
@@ -52,9 +99,18 @@ func AttachmentUpload(dir string, fh *multipart.FileHeader) (*Attachment, error)
 	name := fmt.Sprintf("%s/%x.%s", dir, hashSum, extension)
 	name_minified := fmt.Sprintf("%s/%x.min.jpeg", dir, hashSum)
 
+	attachment := &Attachment{
+		ID:           RandomString(32),
+		Hash:         fmt.Sprintf("%x", hashSum),
+		Uploaded:     time.Now(),
+		OriginalPath: name,
+		MinifiedPath: name_minified,
+	}
+
 	temp, err := os.Open(name)
 	if err == nil {
-		return &Attachment{OriginalUrl: name, MinifiedUrl: name_minified}, nil
+		AttachmentStore.Add(attachment)
+		return attachment, nil
 	}
 
 	// If file not found by hash - create it
@@ -80,13 +136,14 @@ func AttachmentUpload(dir string, fh *multipart.FileHeader) (*Attachment, error)
 	}
 	src, _, err := image.Decode(file)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Can't create imgae thumbnail. %s", err))
+		return nil, errors.New(fmt.Sprintf("Can't create image thumbnail. %s", err))
 	}
 	dst := resize.Resize(300, 0, src, resize.Lanczos3)
 
 	jpeg.Encode(minified, dst, &jpeg.Options{Quality: 80})
 
-	return &Attachment{OriginalUrl: name, MinifiedUrl: name_minified}, nil
+	AttachmentStore.Add(attachment)
+	return attachment, nil
 }
 
 // Delete all attachments from upload folder
@@ -96,7 +153,7 @@ func AttachmentsCleanup(dir string) error {
 		return err
 	}
 	for _, d := range folder {
-		os.RemoveAll(path.Join([]string{dir, d.Name()}...))
+		os.Remove(path.Join([]string{dir, d.Name()}...))
 	}
 	return nil
 }

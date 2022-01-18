@@ -26,6 +26,7 @@ const ATTACHMENTS_VALID_PATH_PREFIX = 'static/upload'
 class Chat {
     user; // user info
     rooms = []; // public rooms (default)
+    muted_list = [];
     constructor() {
         this.api = new ChatApi()
         this.gui = new ChatGUI()
@@ -35,9 +36,10 @@ class Chat {
     }
     async init() {
         this.user = await this.api.join()
-        this.gui.user = this.user
         this.api.update(this.user.session)
 
+        this.gui.user = this.user
+        this.gui.muted_list = this.muted_list
         this.gui.init()
 
         this.api.ondisconnected = (status) => {
@@ -161,7 +163,7 @@ class Chat {
                 let result = await response.json()
                 result.forEach(a => {
                     // if (typeof (a) === 'string' && a.startsWith(ATTACHMENTS_VALID_PATH_PREFIX)) {
-                        attachments.push(a)
+                    attachments.push(a)
 
                 })
 
@@ -189,6 +191,14 @@ class Chat {
         }
 
         this.gui.onRequestPrivate = (user) => {
+            // user.type = 'private'
+            // this.gui.rooms.add(user, false)
+            // this.gui.tab.add(user, true)
+            this.api.requestPrivate(user)
+        }
+
+        this.api.onPrivateCreated = (m) => {
+            let user = m.from
             user.type = 'private'
             this.gui.rooms.add(user, false)
             this.gui.tab.add(user, true)
@@ -202,6 +212,10 @@ class Chat {
         this.api.onMuted = (m) => {
             let user = m.from
             user.muted = true
+            let index = this.muted_list.indexOf(u => user.id == u.id)
+            if (index == -1) {
+                this.muted_list.push(user)
+            }
             this.gui.tab.chat.update_mute_state(user)
         }
 
@@ -212,6 +226,8 @@ class Chat {
         this.api.onUnmuted = (m) => {
             let user = m.from
             user.muted = false
+            let index = this.muted_list.indexOf(u => user.id == u.id)
+            this.muted_list.splice(index, 1)
             this.gui.tab.chat.update_mute_state(user)
         }
 
@@ -287,6 +303,7 @@ class ChatApi {
     onRoomLeave; // user left room
     onRoomUsers; // all users in room
     onRoomMessage; // new message in room
+    onRequestPrivate; //response to private invite
     onPrivateMessage; //new private message
     onThrottling; // to fast sending - bad
     onRoomFull; // no free space - show error, can't join
@@ -446,6 +463,8 @@ class ChatApi {
             case 'unmuted':
                 if (this.onUnmuted) this.onUnmuted(message)
                 break
+            case 'private.created':
+                if (this.onPrivateCreated) this.onPrivateCreated(message)
         }
     }
 
@@ -519,7 +538,7 @@ class ChatApi {
 
     requestPrivate(user) {
         this.send({
-            type: 'private',
+            type: 'private.request',
             to: user
         })
     }
@@ -781,6 +800,7 @@ class ChatGUI {
             if (this.root.onSendText) this.root.onSendText(room, text, files)
         },
         request_private(user) {
+            console.log(this.muted_list)
             if (this.root.onRequestPrivate) this.root.onRequestPrivate(user)
         },
         header: {
@@ -1101,11 +1121,11 @@ class ChatGUI {
                 row.classList.add('chat-message')
                 row.style.alignSelf = align_self
 
-                from.innerText = message?.from?.name
-                text.innerText = message?.body
+                from.innerText = message && message.from && message.from.name ? message.from.name : ''
+                text.innerText = message && message.body ? message.body : ''
 
                 if (this.tab.USE_COLORS == true) {
-                    let name = message?.from?.name
+                    let name = message && message.from && message.from.name ? message.from.name : null
                     if (this.tab.user_color_map[name] === undefined) {
                         this.tab.user_color_map[name] = COLORS[this.tab.last_color_index]
                     }
@@ -1114,7 +1134,9 @@ class ChatGUI {
                 }
 
                 from.addEventListener('click', () => {
-                    this.tab.request_private(message?.from)
+                    if (message && message.from) {
+                        this.tab.request_private(message.from)
+                    }
                 })
 
                 // blink if not active tab
@@ -1137,16 +1159,20 @@ class ChatGUI {
                     })
                 }
 
-                try {
-                    let d = new Date(message?.timestamp)
-                    row.title = d.toLocaleTimeString()
-                } catch {
+                if (message && message.timestamp) {
+                    try {
+                        let d = new Date(message.timestamp)
+                        row.title = d.toLocaleTimeString()
+                    } catch {
 
+                    }
                 }
 
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-id='${room.id}']`)
-                let inner = target?.querySelector('.' + this.inner_class)
-                inner?.prepend(row)
+                let inner = target ? target.querySelector('.' + this.inner_class) : undefined
+                if (inner) {
+                    inner.prepend(row)
+                }
 
                 if (typeof MAX_CHAT_HISTORY_LENGTH !== 'undefined' && Number.isInteger(MAX_CHAT_HISTORY_LENGTH)) {
                     this.delete_older_then(room, MAX_CHAT_HISTORY_LENGTH)
@@ -1158,7 +1184,9 @@ class ChatGUI {
                         id: target.dataset.id,
                         name: target.dataset.name
                     }
-                    this.tab.root.rooms.add_last_message(tab_room, message?.from?.name, message?.body)
+                    let name = message && message.from && message.from.name ? message.from.name : ''
+                    let body = message && message.body ? message.body : ''
+                    this.tab.root.rooms.add_last_message(tab_room, name, body)
                 }
             },
             // Sometimes if user scrolled to bottom - browser treat this as non 0 value, we adding bottom windows 0-100 to accurate scrolling on new messages
@@ -1172,7 +1200,7 @@ class ChatGUI {
             },
             delete_older_then(room) {
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-id='${room.id}']`)
-                let inner = target?.querySelector('.' + this.inner_class)
+                let inner = target ? target.querySelector('.' + this.inner_class) : undefined
                 if (inner) {
                     let i = 0
                     inner.querySelectorAll('.chat-message, .chat-system-message').forEach(m => {
@@ -1190,8 +1218,10 @@ class ChatGUI {
                 row.innerText = text
 
                 let target = this.tab.container.querySelector(`.${this.container_class}[data-id='${room.id}']`)
-                let inner = target?.querySelector('.' + this.inner_class)
-                inner?.prepend(row)
+                let inner = target ? target.querySelector('.' + this.inner_class) : undefined
+                if (inner) {
+                    inner.prepend(row)
+                }
                 if (typeof MAX_CHAT_HISTORY_LENGTH !== 'undefined' && Number.isInteger(MAX_CHAT_HISTORY_LENGTH)) {
                     this.delete_older_then(room, MAX_CHAT_HISTORY_LENGTH)
                 }
@@ -1217,7 +1247,10 @@ class ChatGUI {
                 if (user.id !== this.tab.root.user.id) {
 
                     row.addEventListener('click', () => {
-                        this.tab.request_private(user)
+                        user.muted = row.dataset.muted == 'true' ? true : false
+                        if (user.muted ==- false) {
+                            this.tab.request_private(user)
+                        }
                     })
 
                     let mute = document.createElement('img')

@@ -259,6 +259,7 @@ body {
     font-weight: bold;
     margin-left: 1rem;
     text-align: center;
+    user-select: none;
 }
 .chat-tab-inner-container {
     height: 100%;
@@ -352,6 +353,9 @@ body {
     height: 1em;
     filter: grayscale() opacity(0.5);
     margin-left: 3em;
+}
+.chat-user-list-row[data-muted='true'] {
+    background: none;
 }
 .chat-user-list-row[data-muted='true'] .chat-user-list-row-mute{
     filter: none;
@@ -455,6 +459,7 @@ body {
     align-items: center;
     justify-content: center;
     opacity: 0.75;
+    user-select: none;
 }
 .chat-input-image-preview-uploaded {
     color: green;
@@ -649,6 +654,7 @@ animation: blink 1s step-start 0s infinite;
     justify-content: center;
     border-radius: 15px;
     padding: 15px;
+    user-select: none;
 }
 .image-popup-zoom {
     position: fixed;
@@ -666,6 +672,7 @@ animation: blink 1s step-start 0s infinite;
     justify-content: center;
     border-radius: 15px;
     padding: 15px;
+    user-select: none;
 
 }
 .image-popup-image {

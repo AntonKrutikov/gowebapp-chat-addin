@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"regexp"
 	"time"
@@ -38,7 +39,8 @@ const MAX_ROOM_HISTORY_MESSAGES = 200
 const ROOM_PUBLIC = "public"
 const ROOM_PRIVATE = "private"
 
-//Upload dir
+// Upload dir.
+// WARNING: AttachmentsCleanup(UPLOAD_DIR) is called on startup, be careful to not delete smthing wrong!
 const UPLOAD_DIR = "static/upload"
 
 // Dictionary of bad words wich will be replaced by map value or **** if no map value
@@ -67,6 +69,12 @@ func Init() {
 	dcRoom.Permanent = true
 
 	DefaultRooms = []*Room{defaultRoom, marvelRoom, dcRoom}
+
+	// Clean upload folder on startup, because anyway we lose chat history on restart
+	err = AttachmentsCleanup(UPLOAD_DIR)
+	if err != nil {
+		fmt.Printf("Failed to cleanup upload folder '%s'. %s\n", UPLOAD_DIR, err)
+	}
 }
 
 func PublishMessage(to string, msg *Message) error {
@@ -220,8 +228,15 @@ func ProcessMessage(msg *Message, session *Session) {
 			break
 		}
 
-		// Check all attachments exists
-		StripMissingAttachments(msg)
+		// User try pm to muted user (unmute first!)
+		to := GetUser(msg.To.ID, "")
+		if check, _ := session.User.CheckInMute(to); check == true {
+			break
+		}
+		// Disable ability to recieve pm calls from muted
+		if check, _ := to.CheckInMute(session.User); check == true {
+			break
+		}
 
 		// Force set message from to session data, to prevent message fake
 		msg.From = MessageUser{
@@ -231,6 +246,9 @@ func ProcessMessage(msg *Message, session *Session) {
 
 		// Set timestamp on message before route to room
 		msg.Timestamp = time.Now()
+
+		// Check all attachments exists
+		StripMissingAttachments(msg)
 
 		// Check user spam to fast
 		session.User.FixedWindowCounterMu.Lock()
@@ -264,5 +282,19 @@ func ProcessMessage(msg *Message, session *Session) {
 		target := GetUser(msg.To.ID, "")
 		session.User.RemoveFromMute(target)
 		PublishMessage(session.User.ID, MessageUserUnmuted(session, MessageUser{ID: target.ID, Name: target.Name}))
+	case "private.request":
+		if !UserExists(msg.To.ID) {
+			PublishMessage(session.ID, MessageUserNotFound(session, msg.To))
+			break
+		}
+		if !ValidateMessage(msg, session) {
+			break
+		}
+		// User try pm to muted user (unmute first!)
+		to := GetUser(msg.To.ID, "")
+		if check, _ := session.User.CheckInMute(to); check == true {
+			break
+		}
+		PublishMessage(session.User.ID, MessagePrivateCreated(session, to))
 	}
 }

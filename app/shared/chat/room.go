@@ -143,6 +143,18 @@ func GetRoomByID(id string) (*Room, error) {
 func DeleteRoom(room *Room) {
 	RoomStore.Mu.Lock()
 	if RoomStore.Map[room.Name] != nil {
+		// Clear room attachments before room delete
+		RoomHistoryStore.Mu.Lock()
+		if history := RoomHistoryStore.Map[room.ID]; history != nil {
+			history.Mu.Lock()
+			for _, message := range history.History {
+				for _, attachment := range message.Attachments {
+					AttachmentStore.Remove(attachment)
+				}
+			}
+			history.Mu.Unlock()
+		}
+		RoomHistoryStore.Mu.Unlock()
 		delete(RoomStore.Map, room.Name)
 		room = nil
 	}
@@ -300,6 +312,12 @@ func AddToHistory(room *Room, msg *Message) {
 
 	roomHistory.Mu.Lock()
 	if len(roomHistory.History) >= MAX_ROOM_HISTORY_MESSAGES {
+		// Remove attachments for shifted message
+		message := roomHistory.History[0]
+		for _, attachments := range message.Attachments {
+			AttachmentStore.Remove(attachments)
+		}
+		// Shift history
 		roomHistory.History = roomHistory.History[1:]
 	}
 	roomHistory.History = append(roomHistory.History, msg)

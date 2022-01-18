@@ -52,10 +52,10 @@ func ValidateMessage(msg *Message, s *Session) bool {
 func StripMissingAttachments(msg *Message) {
 	temp := msg.Attachments[:0]
 	for _, a := range msg.Attachments {
-		if _, err := os.Stat(a.OriginalUrl); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(a.OriginalPath); errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		if _, err := os.Stat(a.MinifiedUrl); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(a.MinifiedPath); errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		temp = append(temp, a)
@@ -206,12 +206,11 @@ func MessageRoomUsers(s *Session, room *Room) *Message {
 	}
 }
 
-func MessagePrivateCreated(s *Session, room *Room, calle *User) *Message {
-	body, _ := json.Marshal(room)
+func MessagePrivateCreated(s *Session, calle *User) *Message {
 	return &Message{
 		Timestamp: time.Now(),
 		Type:      "private.created",
-		Body:      string(body),
+		Body:      "Private chat initialize, no users muted",
 		To: MessageUser{
 			ID:   s.User.ID,
 			Name: s.User.Name,
