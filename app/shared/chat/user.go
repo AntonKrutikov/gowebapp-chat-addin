@@ -16,6 +16,8 @@ type User struct {
 	FixedWindowCounterMu sync.Mutex          `json:"-"`
 	MuteList             map[*User]time.Time `json:"-"`
 	MuteListMu           sync.Mutex          `json:"-"`
+	UploadBytes          int64               `json:"-"`
+	UploadBytesMu        sync.Mutex          `json:"-"`
 }
 
 var UserStore = struct {
@@ -40,6 +42,8 @@ func GetUser(id string, name string) *User {
 			FixedWindowCounterMu: sync.Mutex{},
 			MuteList:             map[*User]time.Time{},
 			MuteListMu:           sync.Mutex{},
+			UploadBytes:          0,
+			UploadBytesMu:        sync.Mutex{},
 		}
 
 		go func() {
@@ -48,6 +52,16 @@ func GetUser(id string, name string) *User {
 				user.FixedWindowCounterMu.Lock()
 				user.FixedWindowCounter = 0
 				user.FixedWindowCounterMu.Unlock()
+			}
+		}()
+
+		// Reset upload quota
+		go func() {
+			ticker := time.NewTicker(UPLOAD_QUOTA_RESET_TIMEOUT)
+			for range ticker.C {
+				user.UploadBytesMu.Lock()
+				user.UploadBytes = 0
+				user.UploadBytesMu.Unlock()
 			}
 		}()
 		UserStore.Map[id] = user

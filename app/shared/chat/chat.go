@@ -43,6 +43,12 @@ const ROOM_PRIVATE = "private"
 // WARNING: AttachmentsCleanup(UPLOAD_DIR) is called on startup, be careful to not delete smthing wrong!
 const UPLOAD_DIR = "static/upload"
 
+// Max uploaded bytes per UPLOAD_QUOTA_RESET
+const UPLOAD_USER_QUOTA = 1024 * 1024 * 100
+
+// Each interval quota - reseted
+const UPLOAD_QUOTA_RESET_TIMEOUT = 15 * time.Minute
+
 // Dictionary of bad words wich will be replaced by map value or **** if no map value
 var BadWordsDictionary = map[*regexp.Regexp]string{
 	regexp.MustCompile("fu+c+k"):             "f***",

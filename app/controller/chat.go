@@ -174,12 +174,23 @@ func ChatCloseGET(w http.ResponseWriter, r *http.Request) {
 
 func ChatUploadPOST(w http.ResponseWriter, r *http.Request) {
 	session := session.Instance(r)
+	id := session.Values["id"].(string)
+	name := session.Values["username"].(string)
+	user := chat.GetUser(id, name)
 
 	if session.Values["id"] == nil {
 		w.WriteHeader(401)
 		return
 	}
 
+	// Check if user done too many uploads
+	if user.UploadBytes >= chat.UPLOAD_USER_QUOTA {
+		w.WriteHeader(507)
+		w.Write([]byte("Quota exceed"))
+		return
+	}
+
+	// 25MB total 5*5 for default js client
 	err := r.ParseMultipartForm(25 << 20)
 	if err != nil {
 		fmt.Println(err)
@@ -191,16 +202,37 @@ func ChatUploadPOST(w http.ResponseWriter, r *http.Request) {
 
 	files := r.MultipartForm.File["files"]
 	for _, fh := range files {
-		attachment, err := chat.AttachmentUpload(chat.UPLOAD_DIR, fh)
+		attachment, fromCache, err := chat.AttachmentUpload(chat.UPLOAD_DIR, fh)
 		if err != nil {
 			fmt.Println(err)
 			continue
 		}
 		response = append(response, attachment)
+		if fromCache == false {
+			user.UploadBytesMu.Lock()
+			user.UploadBytes += fh.Size
+			user.UploadBytesMu.Unlock()
+		}
 	}
 
 	body, _ := json.Marshal(response)
 
 	w.Write(body)
 
+}
+
+func ChatUploadAllowedGET(w http.ResponseWriter, r *http.Request) {
+	session := session.Instance(r)
+	id := session.Values["id"].(string)
+	name := session.Values["username"].(string)
+	user := chat.GetUser(id, name)
+
+	// Check if user done too many uploads
+	if user.UploadBytes >= chat.UPLOAD_USER_QUOTA {
+		w.WriteHeader(507)
+		w.Write([]byte("Quota exceed"))
+		return
+	}
+
+	w.WriteHeader(200)
 }

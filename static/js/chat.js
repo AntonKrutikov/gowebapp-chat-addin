@@ -14,6 +14,7 @@ const DEBUG = true //show all messages in console
 
 const TEXTAREA_PLACEHOLDER = 'پیام شما'
 const ADD_ROOM_PLACEHOLDER = 'room name'
+const UPLOAD_QUOTA_SIZE_EXCEED = 'Too many uploads. File quota limit exceed. Please wait.'
 
 // This colors used one by one fro room colors and users colors if options enabled: this.gui.tab.USE_COLORS and this.gui.rooms.USE_COLORS
 const COLORS = ['#E57373', '#81D4FA', '#81C784', '#F06292', '#A1887F', '#90A4AE', '#FF8F00', '#43A047']
@@ -149,24 +150,32 @@ class Chat {
         }
 
         this.gui.onSendText = async (room, text, files) => {
-            // Upload images
             let attachments = []
+            
             if (files.length > 0) {
-                let data = new FormData()
-                for (const file of files) {
-                    data.append('files', file)
+                // Check is upload allowed ?
+                let response = await fetch('/chat/upload/allowed')
+                if (response.status === 507) {
+                    this.gui.tab.chat.add_system_message(room, UPLOAD_QUOTA_SIZE_EXCEED)
+                } else if (response.status === 200) {
+                    // Upload images
+                    let data = new FormData()
+                    for (const file of files) {
+                        data.append('files', file)
+                    }
+                    try {
+                        let response = await fetch('/chat/upload', {
+                            method: 'POST',
+                            body: data
+                        })
+                        let result = await response.json()
+                        result.forEach(a => {
+                            attachments.push(a)
+                        })
+                    } catch (err) {
+                        console.log(err)
+                    }
                 }
-                let response = await fetch('/chat/upload', {
-                    method: 'POST',
-                    body: data
-                })
-                let result = await response.json()
-                result.forEach(a => {
-                    // if (typeof (a) === 'string' && a.startsWith(ATTACHMENTS_VALID_PATH_PREFIX)) {
-                    attachments.push(a)
-
-                })
-
             }
             if (room.type == 'public') {
                 this.api.sendText(room, text, attachments)
@@ -1248,7 +1257,7 @@ class ChatGUI {
 
                     row.addEventListener('click', () => {
                         user.muted = row.dataset.muted == 'true' ? true : false
-                        if (user.muted ==- false) {
+                        if (user.muted == - false) {
                             this.tab.request_private(user)
                         }
                     })

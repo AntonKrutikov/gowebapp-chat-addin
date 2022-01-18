@@ -34,6 +34,12 @@ func (mu *MessageUser) fromUser(u *User) *MessageUser {
 func ValidateMessage(msg *Message, s *Session) bool {
 	// Truncate message text if limit is set
 	if msg.Type == "room.message" || msg.Type == "private.message" || msg.Type == "private.delivered" {
+
+		//Ignore empty messages for messages with content
+		if len(msg.Body) == 0 && len(msg.Attachments) == 0 {
+			return false
+		}
+
 		if MAX_TEXT_MESSAGE_LENGTH > 0 {
 			msg.Body = TruncateString(msg.Body, MAX_TEXT_MESSAGE_LENGTH)
 		}

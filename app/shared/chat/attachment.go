@@ -67,7 +67,7 @@ func (a *Attachment) RemoveFiles() {
 	os.Remove(a.MinifiedPath)
 }
 
-func AttachmentUpload(dir string, fh *multipart.FileHeader) (*Attachment, error) {
+func AttachmentUpload(dir string, fh *multipart.FileHeader) (*Attachment, bool, error) {
 	contentType := fh.Header.Get("Content-Type")
 	extension := ""
 
@@ -76,19 +76,19 @@ func AttachmentUpload(dir string, fh *multipart.FileHeader) (*Attachment, error)
 	} else if contentType == "image/png" {
 		extension = "png"
 	} else {
-		return nil, errors.New("Unknown attachment mime/type")
+		return nil, false, errors.New("Unknown attachment mime/type")
 	}
 
 	file, err := fh.Open()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer file.Close()
 
 	// Calculate hash of file
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// Reset file seek after hash calculation
 	file.Seek(0, 0)
@@ -108,21 +108,21 @@ func AttachmentUpload(dir string, fh *multipart.FileHeader) (*Attachment, error)
 	temp, err := os.Open(name)
 	if err == nil {
 		AttachmentStore.Add(attachment)
-		return attachment, nil
+		return attachment, true, nil
 	}
 
 	// If file not found by hash - create it
 	temp, err = os.Create(name)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	bytes, err := ioutil.ReadAll(file)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	_, err = temp.Write(bytes)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Create minified version, minified version always JPEG
@@ -130,18 +130,18 @@ func AttachmentUpload(dir string, fh *multipart.FileHeader) (*Attachment, error)
 	file.Seek(0, 0)
 	minified, err := os.Create(name_minified)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	src, _, err := image.Decode(file)
 	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Can't create image thumbnail. %s", err))
+		return nil, false, errors.New(fmt.Sprintf("Can't create image thumbnail. %s", err))
 	}
 	dst := resize.Resize(300, 0, src, resize.Lanczos3)
 
 	jpeg.Encode(minified, dst, &jpeg.Options{Quality: 80})
 
 	AttachmentStore.Add(attachment)
-	return attachment, nil
+	return attachment, false, nil
 }
 
 // Delete all attachments from upload folder
